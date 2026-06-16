@@ -1,33 +1,20 @@
 /**
  * The Lyra chat TUI command. Boots an @opentui/solid renderer and renders the
- * (Nebula-derived) chat App; each submitted goal flows through Lyra's agent
- * runtime (runGoal): LLM plan -> policy mirror -> on-chain guard -> Walrus.
+ * (Nebula-derived) chat App; each submitted goal drives Lyra's agentic loop
+ * (runGoal). Tool calls and results stream into the transcript as the agent
+ * works — the same tool-call/tool-result rows Nebula's UI was built for.
  */
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
 import { loadConfig } from 'lyra-core'
 import { ChatApp } from '../ui/app'
 import { createChatState } from '../ui/state'
-import { type GoalResult, runGoal } from './agent'
-
-function formatResult(r: GoalResult): string {
-  const lines: string[] = [`**plan:** ${r.plan.kind} — ${r.plan.reasoning}`]
-  if (r.status === 'blocked') {
-    lines.push(`⛔ **blocked by policy:** ${(r.violations ?? []).join('; ')}`)
-    lines.push('_(the on-chain guard would also abort this — the AI cannot override it)_')
-  } else if (r.status === 'noop') {
-    lines.push('_no action taken._')
-  } else {
-    lines.push(`✅ **executed** · ${r.txUrl}`)
-    if (r.walrusUrl) lines.push(`📦 walrus receipt: ${r.walrusUrl}`)
-  }
-  return lines.join('\n')
-}
+import { runGoal } from './agent'
 
 export async function runChat(): Promise<void> {
   const cfg = loadConfig()
   const state = createChatState({
-    initialSystem: `Lyra · ${cfg.network} · package ${cfg.packageId.slice(0, 10)}…  —  type a goal (e.g. "send 0.005 SUI to myself"), or "exit".`,
+    initialSystem: `Lyra · ${cfg.network} · package ${cfg.packageId.slice(0, 10)}…  —  ask anything (e.g. "what's my balance and the best Sui yield?" or "send 0.005 SUI to myself"). "exit" to quit.`,
     identityLabel: 'lyra',
     approvalsMode: 'prompt',
   })
@@ -54,8 +41,17 @@ export async function runChat(): Promise<void> {
     state.pushRow({ role: 'user', text: goal })
     state.setStatus('thinking')
     try {
-      const result = await runGoal(goal, { log: false })
-      state.pushRow({ role: 'assistant', text: formatResult(result) })
+      await runGoal(goal, {
+        onEvent: (e) => {
+          if (e.type === 'tool-call') {
+            state.pushRow({ role: 'tool-call', text: '', toolName: e.name, args: e.args === '{}' ? '' : e.args })
+          } else if (e.type === 'tool-result') {
+            state.pushRow({ role: 'tool-result', text: e.text, failed: e.failed })
+          } else if (e.type === 'assistant' && e.text.trim()) {
+            state.pushRow({ role: 'assistant', text: e.text })
+          }
+        },
+      })
       state.setStatus('idle')
     } catch (e) {
       state.pushRow({ role: 'system', text: `error: ${(e as Error).message}` })
