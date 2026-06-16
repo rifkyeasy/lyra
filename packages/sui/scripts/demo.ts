@@ -29,8 +29,7 @@ import {
   mistToSui,
   type PolicyAction,
   policyFromEnv,
-  readBlob,
-  storeBlob,
+  storeBlobOnChain,
   SUI_TYPE,
   suiToMist,
   txUrl,
@@ -121,8 +120,13 @@ async function main() {
     status: 'executed',
     ts: new Date().toISOString(),
   }
-  const blob = await storeBlob(JSON.stringify(artifact, null, 2), { epochs: 1 })
-  line(`walrus : ${blob.blobId}`)
+  const blob = await storeBlobOnChain(JSON.stringify(artifact, null, 2), {
+    suiClient: client,
+    signer: owner,
+    network: cfg.network,
+    epochs: 2,
+  })
+  line(`walrus : ${blob.blobId} (mainnet, paid in WAL)`)
   line(`         ${blob.url}`)
 
   const spendTx = new Transaction()
@@ -153,7 +157,7 @@ async function main() {
   line(`sent   : ${mistToSui(ALLOWED_SPEND)} SUI to ${recipient}`)
   line(`receipt: ${receiptId} (frozen, immutable, walrus=${blob.blobId.slice(0, 12)}…)`)
 
-  const fetched = await readBlob(blob.blobId)
+  const fetched = await (await fetch(blob.url)).text()
   line(`verify : Walrus artifact retrievable (${fetched.length} bytes), linked on-chain`)
 
   // --- 3. Blocked over-cap action ---------------------------------------

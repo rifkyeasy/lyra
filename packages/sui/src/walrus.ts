@@ -12,10 +12,16 @@
  * publisher (see README).
  */
 
+import type { SuiClient } from '@mysten/sui/client'
+import type { Signer } from '@mysten/sui/cryptography'
+import { WalrusClient } from '@mysten/walrus'
+
 export interface WalrusEndpoints {
   publisher: string
   aggregator: string
 }
+
+export const WALRUS_MAINNET_AGGREGATOR = 'https://aggregator.walrus-mainnet.walrus.space'
 
 export const WALRUS_TESTNET: WalrusEndpoints = {
   publisher: 'https://publisher.walrus-testnet.walrus.space',
@@ -64,6 +70,38 @@ export async function storeBlob(
     url: blobUrl(blobId, ep),
     alreadyCertified: !!certified,
   }
+}
+
+/**
+ * Store a blob on Walrus via the SDK, paying storage in WAL from `signer`.
+ * This is the fully on-chain mainnet path (no third-party publisher). Returns
+ * the blob id, its Sui object id, and a public aggregator retrieval URL.
+ */
+export async function storeBlobOnChain(
+  data: string | Uint8Array,
+  opts: {
+    suiClient: SuiClient
+    signer: Signer
+    network?: 'mainnet' | 'testnet'
+    epochs?: number
+    deletable?: boolean
+  },
+): Promise<StoredBlob> {
+  const network = opts.network ?? 'mainnet'
+  const blob = typeof data === 'string' ? new TextEncoder().encode(data) : data
+  // biome-ignore lint/suspicious/noExplicitAny: SuiClient is structurally compatible with the SDK's client type.
+  const walrus = new WalrusClient({ network, suiClient: opts.suiClient as any })
+  const { blobId, blobObject } = await walrus.writeBlob({
+    blob,
+    deletable: opts.deletable ?? false,
+    epochs: opts.epochs ?? 3,
+    signer: opts.signer,
+  })
+  // biome-ignore lint/suspicious/noExplicitAny: blobObject id shape varies across SDK versions.
+  const bo = blobObject as any
+  const objectId: string | undefined = bo?.id?.id ?? bo?.id
+  const aggregator = network === 'mainnet' ? WALRUS_MAINNET_AGGREGATOR : WALRUS_TESTNET.aggregator
+  return { blobId, objectId, url: `${aggregator}/v1/blobs/${blobId}`, alreadyCertified: false }
 }
 
 /** Retrieve a stored artifact from a Walrus aggregator. */
