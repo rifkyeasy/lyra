@@ -1,0 +1,22 @@
+{
+  "name": "lyra",
+  "private": true,
+  "type": "module",
+  "description": "Lyra AI — a Sui-native, policy-bound AI agent for autonomous DeFi.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check .",
+    "fix": "biome check --write .",
+    "demo": "bun packages/sui/scripts/demo.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
