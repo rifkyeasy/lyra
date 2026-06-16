@@ -2,10 +2,10 @@
   "network": "mainnet",
   "package": "lyra",
   "module": "policy",
-  "packageId": "0x5bf4ada561934b878f239d946dd0e8f379c4fed83162f779a19fc83fe64b3189",
-  "upgradeCap": "0xe51ea170b9892da4c718d57b66b8660c76d72d0e477db55a374973f69d651944",
-  "publishDigest": "GTKGyKw3iNvLNtcm32Cv53EQkyjjhn818ijGVuroGGN5",
+  "packageId": "0x26e5c029a07f74308d2a72002f09c54affd5b0914e401de25480046f45316885",
+  "upgradeCap": "0xf18ce61609e4068444a29d0ee2628d0047b8f305ce9c948bed7fb2e494d43d3c",
+  "publishDigest": "9G3yxMwAaa7598zJyizvfu6RrG5PQG6q9gRmTXwUtAXj",
   "publishedBy": "0x46e37419c58981bb69100fa559baa52fd7e219486d75e9dc3f0896fab01d06f5",
   "publishedAt": "2026-06-16",
-  "suiCliVersion": "1.60.0"
+  "suiCliVersion": "1.73.0"
 }

@@ -351,7 +351,7 @@ use sui::coin;
 #[test_only]
 use sui::sui::SUI;
 #[test_only]
-use sui::test_utils::destroy;
+use std::unit_test::destroy;
 
 #[test_only]
 fun protos(): vector<String> {

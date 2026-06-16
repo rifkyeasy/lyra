@@ -3,9 +3,7 @@ name = "lyra"
 edition = "2024"
 license = "MIT"
 
-# Sui framework (Sui, MoveStdlib, ...) is an implicit dependency on Sui 1.45+,
-# so it is intentionally not listed here.
+# Sui framework (Sui, MoveStdlib) is an implicit dependency on Sui 1.45+.
+# Named addresses are derived from the package name on Sui CLI 1.63+, so no
+# [addresses] section is needed. The published id is tracked in Move.lock.
 [dependencies]
-
-[addresses]
-lyra = "0x0"
