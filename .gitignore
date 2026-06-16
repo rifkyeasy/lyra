@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# builds
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Move build output
+move/**/build/
+
+# env / secrets — keep only the example
+.env
+.env.*
+!.env.example
+*.key
+*.keystore
+.lyra/
+
+# logs
+*.log
+npm-debug.log*
+bun-debug.log*
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+
+# internal research & strategy (not part of the public submission)
+knowledge/
+
+# local tooling
+.beads/
+.claude/
