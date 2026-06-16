@@ -1,0 +1,11 @@
+[package]
+name = "lyra"
+edition = "2024"
+license = "MIT"
+
+# Sui framework (Sui, MoveStdlib, ...) is an implicit dependency on Sui 1.45+,
+# so it is intentionally not listed here.
+[dependencies]
+
+[addresses]
+lyra = "0x0"
