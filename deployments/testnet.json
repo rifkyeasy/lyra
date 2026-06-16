@@ -1,0 +1,10 @@
+{
+  "network": "testnet",
+  "package": "lyra",
+  "module": "policy",
+  "packageId": "0x660c443a027823dd2befba62588449c801d99566f16cdd5376b6b986dafc64bf",
+  "publishDigest": "Rpy14DijyEPmatMc5dEyTNSscbWsqAt3JUP78bAbsJK",
+  "publishedBy": "0xa2e1d6b5e1402e9c31fd1b5abec58e765fb171c8f01c2be1a1380cceea498543",
+  "publishedAt": "2026-06-16",
+  "suiCliVersion": "1.60.0"
+}
