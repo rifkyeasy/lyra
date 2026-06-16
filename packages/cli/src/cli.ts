@@ -66,6 +66,11 @@ async function main(): Promise<void> {
       await runDemo()
       return
     }
+    case 'telegram': {
+      const { runTelegram } = await import('./commands/telegram')
+      await runTelegram()
+      return
+    }
     case '-h':
     case '--help':
     case 'help': {
@@ -102,6 +107,7 @@ function printHelp(): void {
       '  lyra deepbook              live DeepBook mainnet market context (pools, prices)',
       '  lyra model                 re-pick the LLM model',
       '  lyra demo                  run the full guarded-pipeline demo (create/spend/block/revoke/reclaim)',
+      '  lyra telegram              drive the agent from a Telegram bot (needs TELEGRAM_BOT_TOKEN)',
       '  lyra version               print CLI version  (aliases: --version, -v)',
       '  lyra help                  show this message   (aliases: --help, -h)',
       '',

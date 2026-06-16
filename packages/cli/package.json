@@ -16,6 +16,7 @@
     "lyra-plugin-sui": "0.1.0",
     "lyra-plugin-walrus": "0.1.0",
     "lyra-plugin-deepbook": "0.1.0",
+    "lyra-plugin-telegram": "0.1.0",
     "@mysten/sui": "^1.45.0",
     "@opentui/core": "^0.1.97",
     "@opentui/solid": "^0.1.97",

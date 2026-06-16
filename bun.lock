@@ -47,6 +47,7 @@
         "lyra-core": "0.1.0",
         "lyra-plugin-deepbook": "0.1.0",
         "lyra-plugin-sui": "0.1.0",
+        "lyra-plugin-telegram": "0.1.0",
         "lyra-plugin-walrus": "0.1.0",
         "picocolors": "^1.1.1",
         "solid-js": "^1.9.12",
@@ -83,6 +84,10 @@
         "@mysten/sui": "^1.45.0",
         "lyra-core": "0.1.0",
       },
+    },
+    "packages/plugin-telegram": {
+      "name": "lyra-plugin-telegram",
+      "version": "0.1.0",
     },
     "packages/plugin-walrus": {
       "name": "lyra-plugin-walrus",
@@ -747,6 +752,8 @@
     "lyra-plugin-deepbook": ["lyra-plugin-deepbook@workspace:packages/plugin-deepbook"],
 
     "lyra-plugin-sui": ["lyra-plugin-sui@workspace:packages/plugin-sui"],
+
+    "lyra-plugin-telegram": ["lyra-plugin-telegram@workspace:packages/plugin-telegram"],
 
     "lyra-plugin-walrus": ["lyra-plugin-walrus@workspace:packages/plugin-walrus"],
 
