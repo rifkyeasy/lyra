@@ -12,7 +12,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome check .",
     "fix": "biome check --write .",
-    "demo": "bun packages/sui/scripts/demo.ts"
+    "chat": "bun packages/cli/src/cli.ts",
+    "agent": "bun packages/cli/src/cli.ts agent",
+    "demo": "bun packages/cli/src/cli.ts demo",
+    "gateway": "bun packages/gateway/src/server.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
