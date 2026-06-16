@@ -9,193 +9,117 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
   <a href="https://sui.io"><img src="https://img.shields.io/badge/built%20on-Sui-6fbcf0.svg" alt="Built on Sui"/></a>
   <a href="https://www.walrus.xyz"><img src="https://img.shields.io/badge/storage-Walrus-7c5cff.svg" alt="Walrus"/></a>
+  <img src="https://img.shields.io/badge/contract-verified-22c55e.svg" alt="verified"/>
 </p>
 
 ---
 
-Lyra AI is an autonomous finance agent for **Sui** that can discover DeFi
-opportunities, build transaction plans, and execute approved actions across Sui
-protocols. What makes Lyra more than a chatbot with a wallet is the part the AI
-cannot override: every value-moving action is checked against deterministic
-policy, previewed as a Sui Programmable Transaction Block, and recorded as an
-auditable receipt.
+Lyra is an AI agent that does real on-chain work on **Sui** — check balances, transfer, discover yield, store durable memory — from a **terminal TUI**, a **web console**, **Telegram**, or an **HTTP gateway**. What makes it more than a chatbot with a wallet is the part the AI *cannot* override: every value-moving action is checked against a deterministic policy that lives in an **on-chain Move object**, executed inside a Programmable Transaction Block, and recorded as a verifiable **Walrus** receipt. The model proposes; the chain disposes.
 
-**One line:** Lyra AI lets users delegate bounded financial work to an AI agent
-without giving that agent unlimited wallet authority.
+> **One line:** an AI agent you can trust with a wallet, because the spending limits, protocol scope, expiry, and revocation live in an auditable on-chain object — not in a prompt the model could rationalize its way around.
 
-## Why Lyra
+**Live on Sui mainnet** · package [`0x26e5c029…316885`](https://suiscan.xyz/mainnet/object/0x26e5c029a07f74308d2a72002f09c54affd5b0914e401de25480046f45316885) (source-verified via `sui client verify-source`).
 
-LLMs are useful for understanding goals, comparing strategies, and explaining
-risk. They are not a safety boundary. A confused tool call or persuasive
-hallucination should never be enough to move funds.
+## Why this design
 
-Lyra splits the system into two layers:
+LLMs are good at *deciding what to do* and bad at *being a safety boundary*. A jailbreak, a confused tool call, or a hallucinated "the user said it was fine" should never be the only thing standing between an agent and your funds. So Lyra splits the two:
 
-- **Advisory layer:** AI interprets user goals, discovers protocol options, and
-  proposes actions.
-- **Control layer:** Sui policies, deterministic checks, PTB previews, and
-  revocation rules decide what can actually execute.
+- **Advisory layer (the AI):** an agentic tool-loop — it reads balances, market data, and policy, then proposes actions.
+- **Control layer (deterministic):** an off-chain policy mirror **and** an on-chain `AgentPolicy` Move object that custodies the budget. The agent can only spend through a `withdraw` that aborts if the action is revoked, expired, over its per-tx cap, over budget, or targets a protocol outside the allow-list. Because the agent holds no other funds, it *physically cannot* exceed these bounds.
 
-The result is an agent that can act autonomously, but only inside explicit
-limits set by the user.
+## The write pipeline
 
-## Core Flow
+Every value-moving action goes through the same gates:
 
-```text
-goal
-  -> AI plan
-  -> policy check
-  -> PTB preview
-  -> simulation / confirmation
-  -> Sui execution
-  -> on-chain + Walrus receipt
+```
+intent → POLICY (pure mirror) → on-chain GUARD (Move withdraw) → EXECUTE (PTB) → RECEIPT (Walrus + frozen ActionReceipt)
 ```
 
-Example policy:
+The policy mirror lets the agent refuse instantly; the on-chain guard is the backstop that can't be bypassed — `withdraw` and the real action live in **one atomic PTB**, so if the guard aborts, the whole transaction reverts.
 
-```text
-Max spend: 100 dUSDC
-Allowed protocols: DeepBook, Walrus receipt storage
-Allowed actions: swap, place order, cancel order
-Max slippage: 1%
-Expiry: 24 hours
-Owner revocation: enabled
+## Capabilities (agent tools)
+
+| Kind | Tools |
+| --- | --- |
+| Read | `get_balances`, `policy_status`, `deepbook_market`, `defillama_sui_yields`, `list_receipts`, `read_memory` |
+| Write (policy-gated) | `transfer_sui`, `store_memory` |
+
+The agent runs a real multi-step loop: it inspects state with read tools, then acts with write tools — each write enforcing the policy + on-chain guard internally.
+
+## Interfaces
+
+| Interface | Command |
+| --- | --- |
+| Terminal TUI | `lyra` / `lyra chat` (`@opentui/solid`) |
+| One-shot | `lyra agent "<goal>"` |
+| Web console | `apps/web` (Next.js + `@mysten/dapp-kit`) |
+| Telegram | `lyra telegram` (needs `TELEGRAM_BOT_TOKEN`) |
+| HTTP gateway | `lyra-gateway` → `POST /api/goal` |
+
+Full CLI: `init · chat · agent · status · balance · policy · receipts · deepbook · model · demo · telegram`.
+
+## Quickstart
+
+```bash
+bun install
+cp .env.example .env            # set LYRA_AGENT_KEY (a funded Sui key) + OPENAI_API_KEY
+bun run agent "what's my balance and the top 3 Sui yields?"
+bun run chat                    # interactive TUI
+bun run demo                    # full guarded-pipeline demo on mainnet
 ```
 
-If the agent tries to spend more than the cap, use an unapproved protocol, or
-execute after expiry, Lyra blocks the action before broadcast.
+The agent owns a single funded `AgentPolicy` (created on first run, cached in `.lyra/policy.json`). Configure the policy from the environment:
 
-## Capabilities
+```bash
+LYRA_NETWORK=mainnet
+LYRA_POLICY_MAX_PER_TX_SUI=1.0
+LYRA_POLICY_ALLOWED_PROTOCOLS=transfer,deepbook,walrus
+LYRA_POLICY_EXPIRY_MINUTES=60
+```
 
-| Area | Capability | Notes |
-| --- | --- | --- |
-| Agent policy | Budget, protocol scope, expiry, revocation | Enforced before execution |
-| Sui execution | Programmable Transaction Block generation | Human-readable preview before signing |
-| DeFi discovery | Protocol, pool, yield, and liquidity discovery | DefiLlama plus protocol-specific adapters |
-| Sponsor execution | DeepBook or DeepBook Predict flows | Slippage-capped and policy-checked |
-| Memory | Walrus / MemWal durable agent memory | Strategy logs, reports, receipts |
-| Supporting DeFi | Cetus/Turbos swaps or NAVI/Suilend lending | Add only when useful for the demo |
-| Audit trail | On-chain events and stored receipts | Every accepted or rejected action is explainable |
-| Safety | Blocked-action demos | Shows the policy boundary is real |
+## Architecture
 
-## Sui-Native Design
+A bun monorepo of npm-publishable packages:
 
-Lyra is designed around Sui primitives:
-
-- **Move objects** represent agent policies, spend caps, revocation state, and
-  receipts.
-- **Programmable Transaction Blocks** make multi-step execution previewable and
-  atomic.
-- **Sui events** provide an on-chain action trail.
-- **zkLogin** can simplify onboarding for non-crypto-native users.
-- **DeepBook** provides Sui-native liquidity and financial execution.
-- **Walrus** stores durable agent memory, reports, and receipt artifacts.
-- **Seal** can protect private memory or sensitive strategy data.
-
-## Protocol Integration Plan
-
-Lyra should integrate Sui protocols in stages:
-
-1. **Read-only discovery**
-   - DefiLlama Sui analytics
-   - wallet balances
-   - protocol TVL, yield, and pool metadata
-
-2. **Sponsor protocol core**
-   - Walrus or MemWal for durable memory, reports, and receipts
-   - DeepBook or DeepBook Predict for Sui-native financial execution
-   - PTB preview, policy checks, and receipt storage
-
-3. **Supporting DeFi**
-   - Cetus or Turbos swaps only if needed for route comparison
-   - NAVI or Suilend supply/withdraw flows
-   - position monitoring
-   - liquidation and health-factor warnings
-
-4. **Advanced track expansion**
-   - DeepBook Predict strategies
-   - keeper services
-   - agent-to-agent coordination
-   - private memory with Seal
-
-## Hackathon Positioning
-
-Lyra AI is built for **Sui Overflow 2026**.
-
-Primary track:
-
-- **Agentic Web**: Lyra uses Sui policies, PTBs, and revocation to make AI
-  agents safer and more composable.
-
-Secondary track:
-
-- **Walrus**: Lyra uses Walrus or MemWal as a verifiable memory and receipt
-  layer for long-running agents.
-
-Optional track angle:
-
-- **DeFi & Payments**: Lyra can become a programmable money agent across Sui
-  DeFi.
-- **DeepBook**: Lyra can specialize in DeepBook or DeepBook Predict execution.
-
-## MVP
-
-The first working version should prove the safety boundary and one real
-protocol flow:
-
-1. Connect a Sui wallet.
-2. Create an agent policy object.
-3. Ask Lyra for a goal-driven action.
-4. Generate a PTB preview.
-5. Execute an allowed Sui testnet transaction.
-6. Store a receipt with Walrus.
-7. Attempt an unsafe action and show it being blocked.
-8. Revoke the policy.
-
-## Suggested Architecture
-
-```text
-apps/
-  web                 # Sui wallet UI, policy builder, PTB preview, activity log
-
+```
+move/lyra              # the lyra::policy Move package (AgentPolicy, AgentCap, ActionReceipt)
 packages/
-  agent               # LLM planner, tool selection, explanations
-  policy              # deterministic checks: caps, scope, slippage, expiry
-  sui                 # Sui client, PTB builder, Move package bindings
-  protocols           # DeepBook first; optional Cetus/Turbos, NAVI/Suilend adapters
-  memory              # Walrus / MemWal receipt and memory storage
-
-move/
-  lyra_policy         # AgentPolicy, ActionReceipt, revocation, events
-
-knowledge/
-  ...                 # local hackathon and product research, gitignored
+  core                 # brain (LLM agentic loop) + deterministic policy engine + config/keys
+  plugin-sui           # Sui client + lyra::policy PTB builders + write pipeline + read queries
+  plugin-walrus        # durable verifiable receipts/memory (mainnet Walrus SDK)
+  plugin-deepbook      # read-only DeepBook mainnet market context (indexer)
+  plugin-telegram      # Telegram bot interface
+  cli                  # `lyra` — TUI chat + agent/status/policy/receipts/... commands
+  gateway              # long-running HTTP daemon (POST /api/goal)
+apps/
+  web                  # Next.js console: dapp-kit wallet + gateway-backed agent chat
 ```
 
-## Demo Evidence
+### The Move package
 
-A competitive demo should include:
+- `AgentPolicy<T>` — a shared object custodying a `Balance<T>` budget, with owner, agent, per-tx cap, protocol allow-list, expiry, revoked flag, and spend accounting. `withdraw` is the guard; `deposit` / `reclaim` / `revoke` round it out.
+- `AgentCap` — the agent's transferable authority for a policy.
+- `ActionReceipt` — an immutable (frozen) on-chain receipt linking each action to its Walrus blob.
 
-- A public GitHub repository during judging.
-- A working Sui testnet or mainnet deployment.
-- Package ID for any Move package.
-- A demo video under 5 minutes.
-- At least one real transaction.
-- A successful policy-compliant action.
-- A blocked unsafe action.
-- A visible Walrus memory or receipt artifact.
+Build & verify:
 
-## Knowledge Base
+```bash
+cd move/lyra && sui move test            # 8 unit tests
+sui client verify-source                 # confirms on-chain bytecode matches source
+```
 
-Local planning notes live in `knowledge/`. This folder is intentionally
-gitignored because it contains working research and hackathon context.
+## Development
 
-Start with:
+```bash
+bun run typecheck     # tsc across the workspace
+bun test              # policy-engine unit tests
+```
 
-- `knowledge/README.md`
-- `knowledge/00-project-knowledge.md`
-- `knowledge/product/recommended-concept.md`
-- `knowledge/product/mvp-architecture.md`
+## Demo evidence
+
+- Mainnet package (verified): `0x26e5c029a07f74308d2a72002f09c54affd5b0914e401de25480046f45316885`
+- The demo runs a full trust boundary on mainnet: create policy → allowed guarded spend + Walrus receipt → blocked over-cap (aborted on-chain) → revoke → post-revoke abort → reclaim.
+- Receipts are durable Walrus blobs, retrievable from the public mainnet aggregator and linked from each on-chain `ActionReceipt`.
 
 ## License
 
