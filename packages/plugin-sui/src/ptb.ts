@@ -105,6 +105,23 @@ export function buildRecord(tx: Transaction, a: RecordArgs): void {
   })
 }
 
+export interface DepositArgs {
+  packageId: string
+  coinType: string
+  policyId: string
+  amountMist: bigint
+}
+
+/** Top up a policy's budget by splitting `amountMist` from gas and depositing it. */
+export function buildDeposit(tx: Transaction, a: DepositArgs): void {
+  const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(a.amountMist)])
+  tx.moveCall({
+    target: `${a.packageId}::policy::deposit`,
+    typeArguments: [a.coinType],
+    arguments: [tx.object(a.policyId), coin],
+  })
+}
+
 export interface RevokeArgs {
   packageId: string
   coinType: string
