@@ -17,12 +17,12 @@ import {
   buildRecord,
   buildRevoke,
   buildWithdraw,
+  buildReclaim,
   buildWithdrawTransfer,
   createdObjectByType,
   dryRun,
   evaluatePolicy,
   execute,
-  generateKeypair,
   loadConfig,
   loadKeypair,
   makeClient,
@@ -44,7 +44,9 @@ if (!cfg.packageId) throw new Error('LYRA_PACKAGE_ID is required')
 // are separate keys: the owner holds revoke/reclaim, the agent holds the cap.
 const owner = loadKeypair(process.env.LYRA_AGENT_KEY)
 const ownerAddr = owner.toSuiAddress()
-const recipient = generateKeypair().toSuiAddress() // a throwaway "merchant" address
+// Default to the owner's own address so the demo round-trips on mainnet (no
+// real loss). Override with LYRA_DEMO_RECIPIENT to send to a distinct address.
+const recipient = process.env.LYRA_DEMO_RECIPIENT?.trim() || ownerAddr
 
 const policy = policyFromEnv()
 const coinType = SUI_TYPE
@@ -176,6 +178,14 @@ async function main() {
   afterTx.transferObjects([coin2], afterTx.pure.address(recipient))
   const afterSim = await dryRun(client, afterTx, ownerAddr)
   line(`chain  : would-execute=${afterSim.ok} ${afterSim.ok ? '' : `(aborted: ${afterSim.error})`}`)
+
+  // --- 6. Reclaim remaining budget (owner) ------------------------------
+  h('6. reclaim remaining budget (owner)')
+  const reclaimTx = new Transaction()
+  buildReclaim(reclaimTx, { packageId: cfg.packageId, coinType, policyId })
+  const reclaimRes = await execute(client, owner, reclaimTx)
+  line(`tx     : ${txUrl(cfg.network, reclaimRes.digest)}`)
+  line('remaining budget returned to owner')
 
   line('\n✅ demo complete — the AI acted only inside the policy; the chain enforced the rest.')
 }

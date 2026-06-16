@@ -119,6 +119,21 @@ export function buildRevoke(tx: Transaction, a: RevokeArgs): void {
   })
 }
 
+export interface ReclaimArgs {
+  packageId: string
+  coinType: string
+  policyId: string
+}
+
+/** Owner reclaims the entire remaining budget back to their address. */
+export function buildReclaim(tx: Transaction, a: ReclaimArgs): void {
+  tx.moveCall({
+    target: `${a.packageId}::policy::reclaim_all`,
+    typeArguments: [a.coinType],
+    arguments: [tx.object(a.policyId)],
+  })
+}
+
 // === Simulation & execution ===
 
 export interface DryRunResult {
