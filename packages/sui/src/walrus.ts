@@ -89,8 +89,11 @@ export async function storeBlobOnChain(
 ): Promise<StoredBlob> {
   const network = opts.network ?? 'mainnet'
   const blob = typeof data === 'string' ? new TextEncoder().encode(data) : data
-  // biome-ignore lint/suspicious/noExplicitAny: SuiClient is structurally compatible with the SDK's client type.
-  const walrus = new WalrusClient({ network, suiClient: opts.suiClient as any })
+  // @mysten/walrus bundles its own copy of @mysten/sui, so its client and Signer
+  // types are nominally incompatible with ours despite being identical at
+  // runtime. Bridge through `any` (the demo verifies the real call works).
+  // biome-ignore lint/suspicious/noExplicitAny: cross-version SDK type bridge.
+  const walrus: any = new WalrusClient({ network, suiClient: opts.suiClient as any })
   const { blobId, blobObject } = await walrus.writeBlob({
     blob,
     deletable: opts.deletable ?? false,
