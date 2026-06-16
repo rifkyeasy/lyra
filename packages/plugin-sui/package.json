@@ -1,0 +1,16 @@
+{
+  "name": "lyra-plugin-sui",
+  "version": "0.1.0",
+  "description": "Lyra's Sui limbs — Sui client, PTB builders for the lyra::policy Move package, and the four-gate write pipeline (policy -> simulate -> execute -> receipt).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src"],
+  "publishConfig": { "access": "public" },
+  "dependencies": {
+    "lyra-core": "0.1.0",
+    "@mysten/sui": "^1.45.0"
+  }
+}

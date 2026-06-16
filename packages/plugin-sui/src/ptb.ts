@@ -1,7 +1,7 @@
 import type { SuiClient, SuiTransactionBlockResponse } from '@mysten/sui/client'
 import type { Signer } from '@mysten/sui/cryptography'
 import { Transaction } from '@mysten/sui/transactions'
-import { CLOCK_ID } from './config'
+import { CLOCK_ID } from 'lyra-core'
 
 /**
  * PTB builders for the `lyra::policy` Move module, plus simulate/execute

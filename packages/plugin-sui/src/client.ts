@@ -1,5 +1,5 @@
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
-import type { Network } from './config'
+import type { Network } from 'lyra-core'
 
 export function makeClient(network: Network): SuiClient {
   return new SuiClient({ url: getFullnodeUrl(network) })

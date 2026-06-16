@@ -1,0 +1,19 @@
+{
+  "name": "lyra-gateway",
+  "version": "0.1.0",
+  "description": "Lyra gateway — a long-running HTTP daemon that exposes the policy-bound agent (plan + execute goals, read policy state) for the web console and integrations.",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "lyra-gateway": "./src/server.ts" },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src"],
+  "publishConfig": { "access": "public" },
+  "dependencies": {
+    "lyra-core": "0.1.0",
+    "lyra-plugin-sui": "0.1.0",
+    "lyra-ai-agent": "0.1.0",
+    "@mysten/sui": "^1.45.0"
+  }
+}
