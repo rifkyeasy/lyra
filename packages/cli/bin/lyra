@@ -1,0 +1,6 @@
+#!/usr/bin/env bun
+// Register @opentui/solid's JSX transform before any .tsx loads. bunfig's
+// `preload` only fires when bun finds bunfig.toml in the cwd chain; importing
+// it here makes `lyra` work when installed as a global npm bin too.
+import '@opentui/solid/preload'
+import '../src/cli'
