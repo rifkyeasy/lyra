@@ -1,0 +1,15 @@
+{
+  "name": "@lyra/sui",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Lyra's Sui chain layer: client, keypair, policy engine, PTB builders, and the four-gate write pipeline.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.30.0",
+    "@mysten/walrus": "^0.6.0"
+  }
+}
