@@ -75,7 +75,9 @@ export const metadata: Metadata = {
       { url: '/icons/light/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
     ],
     shortcut: '/favicon.ico',
-    apple: '/icons/light/apple-touch-icon.png',
+    // iOS fills icon transparency with black, so use the cream mark (visible) at
+    // the conventional root path rather than the dark mark.
+    apple: '/apple-touch-icon.png',
   },
   authors: [{ name: 'lyra', url: 'https://x.com/lyraai_space' }],
   keywords: [
