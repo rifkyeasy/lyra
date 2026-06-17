@@ -189,8 +189,9 @@ export function Chat({
                   Prompt lyra.
                 </h1>
                 <p className="mx-auto max-w-[48ch] text-[14.5px] leading-[1.6] text-[var(--color-ink-2)]">
-                  Live on-chain answers on Sui — and transfers &amp; swaps you execute with your own
-                  connected wallet. The autonomous agent runs bounded by its on-chain AgentPolicy.
+                  Live on-chain answers on Sui — and transfers &amp; swaps your policy-bound agent
+                  executes when you direct it. Sign in to authorize; the agent signs under its
+                  on-chain AgentPolicy.
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
@@ -290,9 +291,9 @@ export function Chat({
             </button>
           </form>
           <p className="mt-2 text-center font-mono text-[11px] text-[var(--color-ink-3)]">
-            {account
-              ? `wallet ${account.address.slice(0, 6)}…${account.address.slice(-4)} connected · transfers & swaps execute from your own wallet`
-              : 'connect your Sui wallet (top right) to execute transfers & swaps yourself'}
+            {authed
+              ? `signed in ${authed.slice(0, 6)}…${authed.slice(-4)} · direct your policy-bound agent to transfer & swap`
+              : 'connect + sign in (top right) to direct your policy-bound agent'}
           </p>
         </div>
       </div>

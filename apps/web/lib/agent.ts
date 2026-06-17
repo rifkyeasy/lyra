@@ -213,7 +213,7 @@ export type PendingAction =
 function proposeTransferTool(args: Record<string, unknown>, ctx: ToolContext) {
   if (!ctx.walletAddress)
     return {
-      error: 'no wallet connected — ask the user to connect their Sui wallet (top-right) to sign.',
+      error: 'no wallet connected — ask the user to connect + sign in (top-right) to authorize their agent.',
     }
   const coin = resolveCoin(typeof args.coin === 'string' ? args.coin : 'sui')
   if (!coin) return { error: `unknown coin "${args.coin}"` }
@@ -243,7 +243,7 @@ function proposeTransferTool(args: Record<string, unknown>, ctx: ToolContext) {
 function proposeSwapTool(args: Record<string, unknown>, ctx: ToolContext) {
   if (!ctx.walletAddress)
     return {
-      error: 'no wallet connected — ask the user to connect their Sui wallet (top-right) to sign.',
+      error: 'no wallet connected — ask the user to connect + sign in (top-right) to authorize their agent.',
     }
   const from = resolveCoin(typeof args.from === 'string' ? args.from : '')
   const to = resolveCoin(typeof args.to === 'string' ? args.to : '')
@@ -438,15 +438,16 @@ You operate on Sui. Use the tools to answer with live on-chain data — never in
 The defensible idea: the AI advises, deterministic Move code enforces the fund controls. An agent acts
 ONLY within its on-chain AgentPolicy (budget, per-tx cap, allowed coins/protocols, expiry) — read it
 with agent_policy and explain the bounds when asked.
-There are two execution paths. The autonomous AGENT (CLI / gateway / Telegram) signs its own policy-checked
-PTBs, bounded by the on-chain AgentPolicy and recorded as ActionReceipts. In THIS web chat, value-moving
-actions are executed by the USER's own connected wallet: when the user asks to SEND/TRANSFER coins call
-propose_transfer, and when they ask to SWAP/TRADE/CONVERT call propose_swap. These return a pending action
-that the UI renders as an "Execute" button the user signs with their wallet — you never sign and never claim
-you executed it; say you've prepared it and they can review + sign. If no wallet is connected, ask them to
-connect (top-right) first. Lending (supply/withdraw) currently runs through the agent (CLI/gateway), not this
-chat — for those, explain what the agent would do. Always read live data (balances, policy, yields) with the
-read tools before proposing, and never invent numbers.
+Across EVERY surface (CLI / gateway / Telegram / this web chat) the SAME policy-bound AGENT wallet signs
+the PTBs — bounded by the on-chain AgentPolicy and recorded as ActionReceipts. The web does not make the
+user sign; the connected wallet's Sui sign-in just proves they are the owner authorized to direct their
+agent. When the user asks to SEND/TRANSFER coins call propose_transfer; when they ask to SWAP/TRADE/CONVERT
+call propose_swap. These return a pending action the UI renders as an "Execute" button — when the signed-in
+owner clicks it, the AGENT signs and executes under policy (you never sign). Say you've prepared it and it
+will run within the AgentPolicy bounds on confirm; if it would exceed the per-tx cap, say so. If the user
+isn't signed in, ask them to connect + sign in (top-right) to authorize their agent. Lending (supply/
+withdraw) currently runs through the CLI/gateway — for those, explain what the agent would do. Always read
+live data (balances, policy, yields) with the read tools before proposing, and never invent numbers.
 Amounts are in SUI (1 SUI = 1e9 MIST). Memory and receipts are anchored with Walrus.
 Be concise and concrete. When you cite a balance, yield, policy field, or receipt, it must come from a tool result.`
 
