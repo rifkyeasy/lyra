@@ -20,9 +20,9 @@ for (const pkg of DEDUPE) {
 
 const config: NextConfig = {
   reactStrictMode: true,
-  turbopack: {
-    resolveAlias: dedupeAlias,
-  },
+  // Dev + build both run on webpack (the dev script drops --turbopack): turbopack
+  // does not resolve this bun workspace's root-hoisted node_modules, and webpack
+  // also applies the react-query dedupe alias below.
   webpack: webpackConfig => {
     webpackConfig.resolve.alias = { ...webpackConfig.resolve.alias, ...dedupeAlias }
     return webpackConfig

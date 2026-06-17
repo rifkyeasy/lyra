@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack -p 3210",
+    "dev": "next dev -p 3210",
     "build": "next build",
     "start": "next start -p 3210",
     "typecheck": "tsc --noEmit"
