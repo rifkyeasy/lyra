@@ -27,7 +27,8 @@
   --rgb-shadow: 28 40 64;
   --rgb-shadow-strong: 11 14 21;
 
-  --font-display: var(--font-fraunces);
+  --font-display: var(--font-basik);
+  --font-serif: var(--font-fraunces);
   --font-italic: var(--font-instrument-serif);
   --font-body: var(--font-outfit);
   --font-mono: var(--font-geist-mono);
@@ -222,7 +223,7 @@ html.dark {
 }
 
 @utility font-display {
-  font-family: var(--font-display), 'Fraunces', serif;
+  font-family: var(--font-display), 'Basik', system-ui, sans-serif;
   font-optical-sizing: auto;
 }
 @utility font-italic-serif {
