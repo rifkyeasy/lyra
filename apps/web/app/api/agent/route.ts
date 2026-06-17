@@ -30,7 +30,13 @@ export async function GET() {
       agentMist: bal?.totalBalance ?? '0',
       pkg: LYRA_PKG,
       vault: ov
-        ? { vaultId: ov.vaultId, policyId: ov.policyId, capId: ov.capId, vaultMist: ov.vaultMist }
+        ? {
+            vaultId: ov.vaultId,
+            policyId: ov.policyId,
+            capId: ov.capId,
+            vaultMist: ov.vaultMist,
+            allowedRecipients: ov.allowedRecipients,
+          }
         : null,
     })
   } catch (e) {

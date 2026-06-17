@@ -22,6 +22,23 @@ export interface OwnerVault {
   agent: string
   /** SUI balance held in the vault (treasury), in MIST. */
   vaultMist: string
+  /** Allowed transfer recipients; null = open (any), [] = locked to none. */
+  allowedRecipients: string[] | null
+}
+
+/** Read the policy's recipient allowlist (dynamic field). null = no allowlist set. */
+export async function readAllowedRecipients(policyId: string): Promise<string[] | null> {
+  try {
+    const o = await sui.getDynamicFieldObject({
+      parentId: policyId,
+      name: { type: 'vector<u8>', value: Array.from(new TextEncoder().encode('lyra.recipients')) },
+    })
+    // biome-ignore lint/suspicious/noExplicitAny: dynamic Move object fields
+    const v = (o.data?.content as any)?.fields?.value
+    return Array.isArray(v) ? (v as string[]) : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -54,7 +71,8 @@ export async function resolveOwnerVault(owner: string): Promise<OwnerVault | nul
     const vaultMist = (v?.data?.content as any)?.fields?.balance ?? '0'
     const capId = c.data?.objectId
     if (!capId) continue
-    return { policyId, vaultId, capId, agent, vaultMist: String(vaultMist) }
+    const allowedRecipients = await readAllowedRecipients(policyId)
+    return { policyId, vaultId, capId, agent, vaultMist: String(vaultMist), allowedRecipients }
   }
   return null
 }

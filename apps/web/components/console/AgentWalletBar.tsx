@@ -14,7 +14,13 @@ import { useSignAndExecuteTransaction } from '@mysten/dapp-kit'
 import { Transaction } from '@mysten/sui/transactions'
 import { useCallback, useEffect, useState } from 'react'
 
-type VaultInfo = { vaultId: string; policyId: string; capId: string; vaultMist: string }
+type VaultInfo = {
+  vaultId: string
+  policyId: string
+  capId: string
+  vaultMist: string
+  allowedRecipients: string[] | null
+}
 type AgentInfo = {
   owner: string | null
   agent: string | null
@@ -31,6 +37,7 @@ export function AgentWalletBar() {
   const { mutate: sign } = useSignAndExecuteTransaction()
   const [info, setInfo] = useState<AgentInfo | null>(null)
   const [amount, setAmount] = useState('0.2')
+  const [payeeInput, setPayeeInput] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -141,52 +148,112 @@ export function AgentWalletBar() {
       return tx
     })
 
+  // Set the policy's transfer-recipient allowlist (empty = allow any). Bounds a
+  // prompt-injected agent to the owner's approved payees.
+  const setPayees = (addrs: string[]) =>
+    run(addrs.length ? 'restrict payees' : 'allow any', () => {
+      const v = vault as VaultInfo
+      const tx = new Transaction()
+      tx.moveCall({
+        target: `${pkg}::policy::set_allowed_recipients`,
+        arguments: [
+          tx.object(v.policyId),
+          tx.object(v.capId),
+          tx.makeMoveVec({ type: 'address', elements: addrs.map(a => tx.pure.address(a)) }),
+        ],
+      })
+      return tx
+    })
+
+  const payees = vault?.allowedRecipients ?? null
+  const restricted = Array.isArray(payees) && payees.length > 0
+
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--color-border)] px-5 py-2 font-mono text-[12px] text-[var(--color-ink-2)]">
-      <span className="text-[var(--color-ink-3)]">agent</span>
-      <a
-        href={accountUrl(agent, 'mainnet')}
-        target="_blank"
-        rel="noreferrer"
-        className="text-[var(--color-ink)] hover:text-[var(--color-ink-2)]"
-      >
-        {shortAddress(agent, 6, 4)} ↗
-      </a>
-      <span className="text-[var(--color-ink-3)]">gas {fmt(info.agentMist)}</span>
-      {vault ? (
-        <span className="text-[var(--color-ink-3)]">· vault {fmt(vault.vaultMist)} SUI</span>
-      ) : (
-        <span className="text-[var(--color-ink-3)]">· no vault yet</span>
-      )}
+    <div className="border-b border-[var(--color-border)] font-mono text-[12px] text-[var(--color-ink-2)]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-2">
+        <span className="text-[var(--color-ink-3)]">agent</span>
+        <a
+          href={accountUrl(agent, 'mainnet')}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[var(--color-ink)] hover:text-[var(--color-ink-2)]"
+        >
+          {shortAddress(agent, 6, 4)} ↗
+        </a>
+        <span className="text-[var(--color-ink-3)]">gas {fmt(info.agentMist)}</span>
+        {vault ? (
+          <span className="text-[var(--color-ink-3)]">· vault {fmt(vault.vaultMist)} SUI</span>
+        ) : (
+          <span className="text-[var(--color-ink-3)]">· no vault yet</span>
+        )}
 
-      <span className="mx-1 h-3 w-px bg-[var(--color-border)]" />
-      <input
-        value={amount}
-        onChange={e => setAmount(e.target.value)}
-        className="w-14 rounded border border-[var(--color-border)] bg-transparent px-1.5 py-0.5 text-[11px] text-[var(--color-ink)] outline-none"
-        aria-label="SUI amount"
-      />
-      <span className="text-[var(--color-ink-3)]">SUI</span>
+        <span className="mx-1 h-3 w-px bg-[var(--color-border)]" />
+        <input
+          value={amount}
+          onChange={e => setAmount(e.target.value)}
+          className="w-14 rounded border border-[var(--color-border)] bg-transparent px-1.5 py-0.5 text-[11px] text-[var(--color-ink)] outline-none"
+          aria-label="SUI amount"
+        />
+        <span className="text-[var(--color-ink-3)]">SUI</span>
 
-      {vault ? (
-        <>
-          <Btn onClick={deposit} busy={busy === 'deposit'}>
-            deposit
+        {vault ? (
+          <>
+            <Btn onClick={deposit} busy={busy === 'deposit'}>
+              deposit
+            </Btn>
+            <Btn onClick={withdraw} busy={busy === 'withdraw'}>
+              withdraw
+            </Btn>
+          </>
+        ) : (
+          <Btn onClick={provision} busy={busy === 'provision'}>
+            provision agent
           </Btn>
-          <Btn onClick={withdraw} busy={busy === 'withdraw'}>
-            withdraw
-          </Btn>
-        </>
-      ) : (
-        <Btn onClick={provision} busy={busy === 'provision'}>
-          provision agent
+        )}
+        <Btn onClick={fundGas} busy={busy === 'gas top-up'}>
+          +gas
         </Btn>
-      )}
-      <Btn onClick={fundGas} busy={busy === 'gas top-up'}>
-        +gas
-      </Btn>
 
-      {msg ? <span className="text-[var(--color-ink-3)]">{msg}</span> : null}
+        {msg ? <span className="text-[var(--color-ink-3)]">{msg}</span> : null}
+      </div>
+
+      {vault ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-[var(--color-border)] px-5 py-1.5">
+          <span className="text-[var(--color-ink-3)]">payees</span>
+          <span className={restricted ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-3)]'}>
+            {restricted ? `restricted to ${payees.length}` : 'any (open)'}
+          </span>
+          {restricted ? (
+            <span className="truncate text-[var(--color-ink-3)]">
+              {payees.map(p => `${p.slice(0, 8)}…${p.slice(-4)}`).join(', ')}
+            </span>
+          ) : null}
+          <span className="mx-1 h-3 w-px bg-[var(--color-border)]" />
+          <input
+            value={payeeInput}
+            onChange={e => setPayeeInput(e.target.value)}
+            placeholder="0x… (comma-separated)"
+            className="w-48 rounded border border-[var(--color-border)] bg-transparent px-1.5 py-0.5 text-[11px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-3)]"
+            aria-label="allowed payees"
+          />
+          <Btn
+            onClick={() =>
+              setPayees(
+                payeeInput
+                  .split(',')
+                  .map(s => s.trim())
+                  .filter(s => /^0x[0-9a-fA-F]{1,64}$/.test(s)),
+              )
+            }
+            busy={busy === 'restrict payees'}
+          >
+            restrict
+          </Btn>
+          <Btn onClick={() => setPayees([])} busy={busy === 'allow any'}>
+            allow any
+          </Btn>
+        </div>
+      ) : null}
     </div>
   )
 }
