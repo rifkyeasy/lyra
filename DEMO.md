@@ -4,11 +4,18 @@ A 5-minute tour of the thesis: **the AI advises, deterministic code + Sui enforc
 
 The control layer lives in two places that agree with each other:
 - **Off-chain** — a pure, unit-tested policy engine (`packages/plugin-onchain/src/policy.ts`) checked before anything is signed.
-- **On-chain** — the `lyra::policy` Move package, deployed to mainnet, which re-enforces the same budget / per-tx / coin / protocol / expiry in Move and mints an auditable `ActionReceipt`.
+- **On-chain** — the `lyra::policy` + `lyra::vault` Move package, deployed to mainnet, which re-enforces the same budget / per-tx / coin / protocol / expiry in Move and mints an auditable `ActionReceipt`.
 
 ```
-mainnet package  0x250880a4c1a268da8011b164f599d4e100cefce84f862d36396cd1a943ee8a35
+mainnet package  0xc7c4f8887150035058e70b981896e4f0f868f1d6c2951549398ab364bacb4f90
+  (upgraded; original/type id 0x250880a4…1a943ee8a35)
 ```
+
+### Non-custodial by design
+
+Funds do **not** sit in the agent's wallet. Each owner has an on-chain **`Vault`** holding their treasury, bound to their `AgentPolicy`. The delegated agent can only draw funds through **`vault_spend`**, which re-runs the full policy gate in Move; the owner can **withdraw** or **revoke** at any time with their `PolicyOwnerCap`. A compromised agent key — or a leaked server signing key — is bounded by the policy and revocable. The agent is a *delegate, not a custodian*.
+
+**Multi-tenant**: each owner wallet deterministically maps to one agent + one vault, identical across web / CLI / Telegram. Onboarding is **one owner signature** — `vault::provision` creates the policy, opens the vault, and deposits, atomically. Verified live on mainnet: provision → agent `vault_spend` transfer + swap (from the vault) → owner withdraw.
 
 ## Setup
 
