@@ -39,8 +39,10 @@ export function Hero() {
       className="relative isolate flex flex-col overflow-hidden bg-[var(--color-cream)]"
       aria-labelledby="hero-headline"
     >
-      {/* full-screen animated background — sits behind all hero content */}
-      <div className="pointer-events-none absolute inset-0 -z-10">
+      {/* full-screen animated background. NOT negative-z + the content below uses
+          no z-index, so they share one stacking context — letting the headline's
+          mix-blend-difference actually blend against the moving waves. */}
+      <div className="pointer-events-none absolute inset-0">
         <LineWaves
           speed={0.3}
           innerLineCount={32}
@@ -57,19 +59,19 @@ export function Hero() {
           mouseInfluence={2}
         />
       </div>
-      <div className="relative z-10 mx-auto flex h-screen w-full max-w-[var(--container-wrap)] flex-col items-center justify-center px-6 text-center sm:px-8">
+      <div className="relative mx-auto flex h-screen w-full max-w-[var(--container-wrap)] flex-col items-center justify-center px-6 text-center sm:px-8">
         <motion.h1
           id="hero-headline"
           initial="hidden"
           animate="show"
           transition={{ staggerChildren: 0.14, delayChildren: 0.05 }}
-          className="font-display text-[clamp(38px,4.8vw,68px)] font-normal leading-[1.02] tracking-[-0.025em] text-[var(--color-ink)]"
+          className="font-display text-[clamp(38px,4.8vw,68px)] font-normal leading-[1.02] tracking-[-0.025em] text-white mix-blend-difference"
         >
           <motion.span variants={lineVariants} className="block">
             One Prompt. Any Action.
           </motion.span>
           <motion.span variants={lineVariants} className="block">
-            across the <span className="text-[var(--color-accent)]">Sui</span> ecosystem.
+            across the Sui ecosystem.
           </motion.span>
         </motion.h1>
 
