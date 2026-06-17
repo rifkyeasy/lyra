@@ -49,10 +49,10 @@ export function Hero() {
           rotation={-45}
           edgeFadeWidth={0}
           colorCycleSpeed={1}
-          brightness={0.2}
-          color1="#ffffff"
-          color2="#ffffff"
-          color3="#ffffff"
+          brightness={0.32}
+          color1="#2b8fff"
+          color2="#7c6bff"
+          color3="#34c3ff"
           enableMouseInteraction
           mouseInfluence={2}
         />
@@ -70,7 +70,7 @@ export function Hero() {
             One Prompt. Any Action.
           </motion.span>
           <motion.span variants={lineVariants} className="block">
-            across the Sui ecosystem.
+            across the <span className="text-[var(--color-accent)]">Sui</span> ecosystem.
           </motion.span>
         </motion.h1>
 
@@ -94,7 +94,7 @@ export function Hero() {
                 })
               }
             }}
-            className="group inline-flex items-center gap-2 rounded-full bg-[var(--color-ink)] px-8 py-3.5 text-[15px] font-medium tracking-tight text-[var(--color-cream)] shadow-[0_18px_40px_-22px_rgba(16,15,9,0.7)] transition-transform hover:-translate-y-0.5 hover:scale-[1.01] active:scale-[0.99]"
+            className="group inline-flex items-center gap-2 rounded-full bg-[var(--color-accent)] px-8 py-3.5 text-[15px] font-medium tracking-tight text-white shadow-[0_18px_44px_-18px_rgba(43,143,255,0.55)] transition-all hover:-translate-y-0.5 hover:scale-[1.01] hover:bg-[var(--color-accent-deep)] active:scale-[0.99]"
           >
             <span>Getting Started</span>
             <span aria-hidden className="transition-transform group-hover:translate-x-1">

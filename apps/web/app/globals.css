@@ -3,22 +3,29 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-cream: #f9f8f6;
-  --color-cream-deep: #f2f1ee;
-  --color-paper: #fbfbf9;
-  --color-cream-warm: #f0e8d6;
-  --color-ink: #100f09;
-  --color-ink-2: #525251;
-  --color-ink-3: #8b8b88;
-  --color-border: rgba(16, 15, 9, 0.09);
-  --color-border-strong: rgba(16, 15, 9, 0.2);
+  --color-cream: #f5f7fa;
+  --color-cream-deep: #eaeef4;
+  --color-paper: #fbfcfe;
+  --color-cream-warm: #e7eef7;
+  --color-ink: #0b0e15;
+  --color-ink-2: #4e5560;
+  --color-ink-3: #868d99;
+  --color-border: rgba(11, 14, 21, 0.1);
+  --color-border-strong: rgba(11, 14, 21, 0.2);
+
+  /* Lyra brand accent — Sui-aligned aqua + a cosmic violet for hero/gradients.
+     This is what sets Lyra apart from the warm, accent-less Nebula palette. */
+  --color-accent: #2b8fff;
+  --color-accent-deep: #1c79e8;
+  --color-accent-2: #7c6bff;
 
   /* Raw RGB triplets so framer-motion / dynamic styles can compose
      theme-aware rgba() values without re-reading the swapped tokens. */
-  --rgb-cream: 249 248 246;
-  --rgb-ink: 16 15 9;
-  --rgb-shadow: 60 50 30;
-  --rgb-shadow-strong: 16 15 9;
+  --rgb-cream: 245 247 250;
+  --rgb-ink: 11 14 21;
+  --rgb-accent: 43 143 255;
+  --rgb-shadow: 28 40 64;
+  --rgb-shadow-strong: 11 14 21;
 
   --font-display: var(--font-fraunces);
   --font-italic: var(--font-instrument-serif);
@@ -78,18 +85,18 @@
 
 @media (prefers-color-scheme: dark) {
   html:not(.light) {
-    --color-cream: #0e0d0a;
-    --color-cream-deep: #161410;
-    --color-paper: #14120e;
-    --color-cream-warm: #1f1c14;
-    --color-ink: #efece3;
-    --color-ink-2: #a8a59e;
-    --color-ink-3: #6f6c65;
-    --color-border: rgba(239, 236, 227, 0.1);
-    --color-border-strong: rgba(239, 236, 227, 0.22);
+    --color-cream: #0a0c11;
+    --color-cream-deep: #11141b;
+    --color-paper: #0f1218;
+    --color-cream-warm: #191e29;
+    --color-ink: #e9edf4;
+    --color-ink-2: #a2a7b2;
+    --color-ink-3: #6b7079;
+    --color-border: rgba(233, 237, 244, 0.1);
+    --color-border-strong: rgba(233, 237, 244, 0.22);
 
-    --rgb-cream: 14 13 10;
-    --rgb-ink: 239 236 227;
+    --rgb-cream: 10 12 17;
+    --rgb-ink: 233 237 244;
     --rgb-shadow: 0 0 0;
     --rgb-shadow-strong: 0 0 0;
 
@@ -126,18 +133,18 @@
 }
 
 html.dark {
-  --color-cream: #0e0d0a;
-  --color-cream-deep: #161410;
-  --color-paper: #14120e;
-  --color-cream-warm: #1f1c14;
-  --color-ink: #efece3;
-  --color-ink-2: #a8a59e;
-  --color-ink-3: #6f6c65;
-  --color-border: rgba(239, 236, 227, 0.1);
-  --color-border-strong: rgba(239, 236, 227, 0.22);
+  --color-cream: #0a0c11;
+  --color-cream-deep: #11141b;
+  --color-paper: #0f1218;
+  --color-cream-warm: #191e29;
+  --color-ink: #e9edf4;
+  --color-ink-2: #a2a7b2;
+  --color-ink-3: #6b7079;
+  --color-border: rgba(233, 237, 244, 0.1);
+  --color-border-strong: rgba(233, 237, 244, 0.22);
 
-  --rgb-cream: 14 13 10;
-  --rgb-ink: 239 236 227;
+  --rgb-cream: 10 12 17;
+  --rgb-ink: 233 237 244;
   --rgb-shadow: 0 0 0;
   --rgb-shadow-strong: 0 0 0;
 
