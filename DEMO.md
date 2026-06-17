@@ -17,6 +17,14 @@ Funds do **not** sit in the agent's wallet. Each owner has an on-chain **`Vault`
 
 **Multi-tenant**: each owner wallet deterministically maps to one agent + one vault, identical across web / CLI / Telegram. Onboarding is **one owner signature** — `vault::provision` creates the policy, opens the vault, and deposits, atomically. Verified live on mainnet: provision → agent `vault_spend` transfer + swap (from the vault) → owner withdraw.
 
+The owner proves identity per surface, all resolving to the *same* agent + vault: **web** = Sign-In-with-Sui; **CLI** = local config / `lyra whoami --owner`; **Telegram** = `/link` → sign a challenge → `/verify` (the bot recovers the signer via `verifyPersonalMessageSignature` and binds the Telegram user to that owner).
+
+### Honest design boundaries
+
+- **Lending stays out of the vault on purpose.** Supplying to NAVI / Scallop hands the position to the *agent's* address — it leaves the vault's custody guarantee. Routing lending through the vault non-custodially needs a vault-owned-position design, so it's deliberately deferred rather than silently regressing the security model.
+- **Multi-coin vaults are contract-ready.** `Vault<T>` is generic; the off-chain path is SUI-treasury-first today (swap outputs go to the owner). Opening a `Vault<USDC>` etc. is a pure off-chain extension.
+- **Telegram per-user execution.** `/link` establishes identity + resolves the owner's agent today; routing each Telegram user's *execution* through their own agent is the multi-tenant-runtime step the web console already implements.
+
 ## Setup
 
 ```bash
