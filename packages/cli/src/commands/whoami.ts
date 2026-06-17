@@ -8,7 +8,12 @@
  * on CLI), but they all resolve to the same agent.
  */
 
-import { type SuiNetwork, deriveAgentAddress, makeSuiClient } from 'lyra-plugin-onchain'
+import {
+  type SuiNetwork,
+  deriveAgentAddress,
+  makeSuiClient,
+  resolveOwnerVault,
+} from 'lyra-plugin-onchain'
 
 export async function runWhoami(opts: { owner?: string }): Promise<void> {
   const owner = opts.owner ?? process.env.LYRA_OWNER_ADDRESS
@@ -27,17 +32,31 @@ export async function runWhoami(opts: { owner?: string }): Promise<void> {
   }
   const network = (process.env.LYRA_NETWORK as SuiNetwork) ?? 'mainnet'
   const client = makeSuiClient(network)
-  const bal = await client.getBalance({ owner: agent }).catch(() => null)
+  const [bal, ov] = await Promise.all([
+    client.getBalance({ owner: agent }).catch(() => null),
+    resolveOwnerVault(owner, network).catch(() => null),
+  ])
   const sui = bal ? (Number(bal.totalBalance) / 1e9).toFixed(6) : '?'
 
   console.log('')
   console.log(`  owner    ${owner}`)
-  console.log(`  agent    ${agent}`)
+  console.log(`  agent    ${agent}   (gas float ${sui} SUI)`)
   console.log(`  network  ${network}`)
-  console.log(`  balance  ${sui} SUI`)
+  if (ov) {
+    console.log(`  vault    ${ov.vaultId}`)
+    console.log(
+      `  treasury ${(Number(ov.vaultMist) / 1e9).toFixed(6)} SUI  (policy ${ov.policyId.slice(0, 10)}…)`,
+    )
+    console.log('')
+    console.log('  The agent spends the treasury from the vault via policy-enforced')
+    console.log('  vault_spend; you (owner) can withdraw or revoke any time.')
+  } else {
+    console.log('  vault    not provisioned')
+    console.log('')
+    console.log('  Provision a non-custodial vault from the web console (owner-signed),')
+    console.log('  then the agent spends the treasury under your on-chain AgentPolicy.')
+  }
   console.log('')
-  console.log('  Same owner → same agent on web + CLI + Telegram (one master secret,')
-  console.log('  deterministic derivation). Fund the agent address to let it act under')
-  console.log('  your on-chain AgentPolicy.')
+  console.log('  Same owner → same agent + vault on web + CLI + Telegram (deterministic).')
   console.log('')
 }
