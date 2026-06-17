@@ -292,6 +292,11 @@ entry fun rotate_agent(policy: &mut AgentPolicy, cap: &PolicyOwnerCap, new_agent
 
 // === Getters ===
 
+/// Object id of the policy a `PolicyOwnerCap` controls. Lets sibling modules
+/// (e.g. `lyra::vault`) verify a caller holds the owner cap for a given policy
+/// without exposing the cap's internals.
+public fun owner_cap_policy_id(cap: &PolicyOwnerCap): ID { cap.policy_id }
+
 public fun owner(policy: &AgentPolicy): address { policy.owner }
 
 public fun agent(policy: &AgentPolicy): address { policy.agent }
@@ -378,6 +383,36 @@ fun mk(
 
 #[test_only]
 fun sui_type(): vector<u8> { type_name::with_defining_ids<SUI>().into_string().into_bytes() }
+
+#[test_only]
+/// Public test fixture for sibling test modules (e.g. `lyra::vault_tests`): build
+/// an `AgentPolicy` + its `PolicyOwnerCap` directly, with `owner` = the tx sender.
+public fun new_policy_for_testing(
+    agent: address,
+    budget_mist: u64,
+    max_per_tx_mist: u64,
+    expiry_ms: u64,
+    allowed_coins: vector<vector<u8>>,
+    allowed_protocols: vector<address>,
+    ctx: &mut TxContext,
+): (AgentPolicy, PolicyOwnerCap) {
+    let policy = AgentPolicy {
+        id: object::new(ctx),
+        owner: ctx.sender(),
+        agent,
+        budget_mist,
+        spent_mist: 0,
+        max_per_tx_mist,
+        max_slippage_bps: 100,
+        allowed_coins,
+        allowed_protocols,
+        expiry_ms,
+        revoked: false,
+        created_ms: 0,
+    };
+    let cap = PolicyOwnerCap { id: object::new(ctx), policy_id: object::id(&policy) };
+    (policy, cap)
+}
 
 #[test]
 fun spends_within_limits_and_accrues() {
