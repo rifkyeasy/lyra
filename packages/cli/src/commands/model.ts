@@ -1,22 +1,48 @@
-import * as p from '@clack/prompts'
-import { brainFromEnv } from 'lyra-core'
-import pc from 'picocolors'
-import { upsertEnv } from '../util/env'
+import { cancel, intro, outro } from '@clack/prompts'
+import { defineConfig } from 'lyra-core'
+import { findAndLoadConfig } from '../config/load'
+import { writeConfigTs } from '../config/render'
+import { pickBrainModel } from './init/model-picker'
 
-const MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1', 'o4-mini']
-
-/** Re-pick the LLM model (writes LYRA_LLM_MODEL to .env). */
+/**
+ * `lyra model` — re-pick the brain provider/model. Updates the persisted
+ * config so subsequent `lyra` (chat) sessions use the new choice.
+ *
+ * The TUI also exposes `/model` as a slash command for in-session switching;
+ * see `chat.tsx`.
+ */
 export async function runModel(): Promise<void> {
-  const current = brainFromEnv().model
-  const m = await p.select({
-    message: `LLM model (current: ${current})`,
-    options: MODELS.map((v) => ({ value: v, label: v })),
-    initialValue: MODELS.includes(current) ? current : MODELS[0],
-  })
-  if (p.isCancel(m)) {
-    p.cancel('cancelled')
+  intro('lyra model')
+
+  const loaded = await findAndLoadConfig()
+  if (!loaded) {
+    cancel('No lyra.config.ts found. Run `lyra init` first.')
     return
   }
-  await upsertEnv({ LYRA_LLM_MODEL: m as string })
-  console.log(pc.green(`✓ model set to ${m as string} (.env)`))
+  const { config } = loaded
+
+  const pick = await pickBrainModel()
+  if (!pick) {
+    cancel('No model picked.')
+    return
+  }
+
+  const updated = defineConfig({
+    ...config,
+    brain: { provider: pick.provider, model: pick.model },
+  })
+  await writeConfigTs(loaded.path, updated, {
+    header: '// Updated by `lyra model`. Edit freely; type-safe.',
+  })
+
+  outro(
+    [
+      '',
+      `  brain    ${pick.model ?? '?'}`,
+      `  provider ${pick.provider}`,
+      `  config   ${loaded.path}`,
+      '',
+      'Next chat session will use the new brain.',
+    ].join('\n'),
+  )
 }

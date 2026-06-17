@@ -1,62 +1,83 @@
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { brainFromEnv, loadConfig, loadKeypair, mistToSui, policyFromEnv, suiToMist } from 'lyra-core'
-import { getBalances, getPolicyState, makeClient } from 'lyra-plugin-sui'
-import pc from 'picocolors'
+import { existsSync, statSync } from 'node:fs'
+import { agentPaths, formatSui, getSuiBalanceMist, makeSuiClient, suiRpcUrl } from 'lyra-core'
+import { type SuiPolicy, policyFromEnv } from 'lyra-plugin-onchain'
+import { findAndLoadConfig } from '../config/load'
+import { loadAgentFromEnv } from '../util/sui-runtime'
+import { listAgentIds } from './_agents'
 
-/** Rich status: network, package, agent, balances, config + on-chain policy. */
-export async function runStatus(): Promise<void> {
-  const cfg = loadConfig()
-  const brain = brainFromEnv()
+export async function runStatus(opts?: { cwd?: string }): Promise<void> {
+  const cwd = opts?.cwd ?? process.cwd()
+  const found = await findAndLoadConfig(cwd)
+  if (!found) {
+    console.log('No lyra.config.ts found. Run `lyra init` first.')
+    process.exit(1)
+  }
+  const { config, path } = found
+
+  const agent = loadAgentFromEnv()
+  const agentAddress = agent?.address ?? config.identity.agent ?? '(no LYRA_AGENT_KEY)'
+
+  console.log(`config    ${path}`)
+  console.log(`network   ${config.network}`)
+  console.log(`rpc       ${suiRpcUrl(config.network)}`)
+  console.log(`plugins   ${config.plugins.join(', ')}`)
+  console.log(`agent     ${agentAddress}`)
+  console.log(`brain     ${config.brain.provider ?? '(not picked)'}`)
+
+  // lyra::policy package + active deterministic policy summary.
+  const packageId = process.env.LYRA_PACKAGE_ID
+  console.log(`policy pkg ${packageId ?? '(LYRA_PACKAGE_ID unset)'}`)
+  const policyObjectId = process.env.LYRA_POLICY_OBJECT_ID
+  if (policyObjectId) console.log(`policy obj ${policyObjectId}`)
   const policy = policyFromEnv()
-  const client = makeClient(cfg.network)
-  const addr = process.env.LYRA_AGENT_KEY
-    ? loadKeypair(process.env.LYRA_AGENT_KEY).toSuiAddress()
-    : null
+  if (policy) {
+    console.log(`policy     ${summarizePolicy(policy)}`)
+  } else {
+    console.log('policy     (none configured — set LYRA_POLICY_* to bound the agent)')
+  }
 
-  console.log(pc.bold(pc.magenta('Lyra')) + pc.dim(' — the AI proposes, Sui policies enforce, Walrus remembers'))
-  console.log('')
-  console.log(`  ${pc.dim('network')}   ${cfg.network}`)
-  console.log(`  ${pc.dim('package')}   ${cfg.packageId || pc.yellow('(unset)')}`)
-  console.log(`  ${pc.dim('agent')}     ${addr ?? pc.yellow('(no LYRA_AGENT_KEY)')}`)
-  console.log(`  ${pc.dim('brain')}     ${brain.model}${brain.apiKey ? '' : pc.yellow(' (no OPENAI_API_KEY)')}`)
-
-  if (addr) {
+  // Live SUI balance for the agent (pays gas for every PTB).
+  if (agent) {
     try {
-      const balances = await getBalances(client, addr)
-      const sui = balances.find((b) => b.symbol === 'SUI')
-      const wal = balances.find((b) => b.symbol === 'WAL')
-      const parts = [`${sui ? mistToSui(sui.total) : '0'} SUI`]
-      if (wal) parts.push(`${mistToSui(wal.total)} WAL`)
-      console.log(`  ${pc.dim('balance')}   ${parts.join('  ·  ')}`)
-    } catch {
-      // network hiccup — skip balances
+      const client = makeSuiClient(config.network)
+      const mist = await getSuiBalanceMist(client, agent.address)
+      console.log(`balance   ${formatSui(mist)} SUI`)
+    } catch (e) {
+      console.log(`balance   (rpc error: ${(e as Error).message.slice(0, 80)})`)
     }
   }
 
-  const cap = mistToSui(policy.maxNativeMistPerTx ?? suiToMist(0.02))
-  console.log('')
-  console.log(pc.bold('  policy (config)'))
-  console.log(`    per-tx cap   ${cap} SUI`)
-  console.log(`    protocols    [${(policy.allowedProtocols ?? []).join(', ')}]`)
-  console.log(`    autonomy     ${policy.autonomy ?? 'auto'}`)
+  const ids = await listAgentIds()
+  if (ids.length === 0) {
+    console.log('\nNo agents found in ~/.lyra/agents. Re-run `lyra init`.')
+    return
+  }
 
-  if (existsSync('.lyra/policy.json')) {
-    try {
-      const ref = JSON.parse(await readFile('.lyra/policy.json', 'utf8'))
-      if (ref.packageId === cfg.packageId) {
-        const st = await getPolicyState(client, ref.policyId)
-        if (st) {
-          console.log('')
-          console.log(`${pc.bold('  policy (on-chain) ')}${pc.dim(`${ref.policyId.slice(0, 16)}…`)}`)
-          console.log(`    status       ${st.revoked ? pc.red('REVOKED') : pc.green('active')}`)
-          console.log(`    budget       ${mistToSui(st.remaining)} / ${mistToSui(st.totalDeposited)} SUI remaining`)
-          console.log(`    spent        ${mistToSui(st.spent)} SUI  ·  ${st.nonce} actions`)
-          console.log(`    expiry       ${st.expiryMs === 0 ? 'none' : new Date(st.expiryMs).toISOString()}`)
-        }
-      }
-    } catch {
-      // no readable on-chain policy
+  for (const id of ids) {
+    console.log('')
+    console.log(`agent dir ${id}`)
+    console.log(`dir       ${agentPaths.agent(id).dir}`)
+    const activityPath = agentPaths.agent(id).activityLog
+    if (existsSync(activityPath)) {
+      const sz = statSync(activityPath).size
+      console.log(`activity  ${sz} bytes`)
     }
   }
+}
+
+/** One-line summary of the deterministic off-chain policy mirror. */
+function summarizePolicy(policy: SuiPolicy): string {
+  const parts: string[] = []
+  const autonomy = policy.autonomy ?? (policy.readOnly ? 'readonly' : 'auto')
+  parts.push(`autonomy=${autonomy}`)
+  if (policy.maxMistPerTx !== undefined) parts.push(`maxPerTx=${formatSui(policy.maxMistPerTx)} SUI`)
+  if (policy.autoMaxMistPerTx !== undefined)
+    parts.push(`autoMax=${formatSui(policy.autoMaxMistPerTx)} SUI`)
+  if (policy.maxSlippageBps !== undefined) parts.push(`slippage=${policy.maxSlippageBps}bps`)
+  if (policy.coinAllowlist?.length) parts.push(`coins=${policy.coinAllowlist.length}`)
+  if (policy.protocolAllowlist?.length) parts.push(`protocols=${policy.protocolAllowlist.length}`)
+  if (policy.recipientAllowlist?.length)
+    parts.push(`recipients=${policy.recipientAllowlist.length}`)
+  if (policy.expiryMs) parts.push(`expires=${new Date(policy.expiryMs).toISOString().slice(0, 16)}`)
+  return parts.join(', ')
 }

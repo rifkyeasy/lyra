@@ -1,203 +1,175 @@
 /**
- * The scripted end-to-end demo of the trust boundary on the active network.
- * create policy -> allowed guarded spend + Walrus receipt -> blocked over-cap
- * -> revoke -> post-revoke abort -> reclaim. Real transactions throughout.
+ * `lyra demo` — walk the guarded pipeline end to end using the lyra-plugin-onchain
+ * tools and the deterministic policy engine.
+ *
+ * Steps:
+ *   1. policy.show           — print the active fund-control policy.
+ *   2. blocked over-cap send — evaluatePolicy on an amount above the per-tx cap;
+ *                              demonstrates a BLOCKED unsafe action (no network).
+ *   3. policy.create         — publish an on-chain lyra::policy AgentPolicy   (--yes)
+ *   4. sui.send              — a small in-cap transfer to self                (--yes)
+ *   5. walrus.store          — store the run receipt durably on Walrus        (--yes)
+ *
+ * Steps 3–5 move value / write on-chain, so they run ONLY with `--yes`. The
+ * default run is read-only + deterministic: it proves the policy blocks an
+ * over-cap action and explains what the write path would do.
  */
-import { Transaction } from '@mysten/sui/transactions'
-import {
+
+import { formatSui, getSuiBalanceMist } from 'lyra-core'
+import onchainPlugin, {
+  type OnchainRuntimeContext,
+  type SuiPolicy,
   evaluatePolicy,
-  loadConfig,
-  loadKeypair,
-  mistToSui,
-  type PolicyAction,
+  makeSuiClient,
   policyFromEnv,
-  SUI_TYPE,
   suiToMist,
-} from 'lyra-core'
-import {
-  buildCreatePolicy,
-  buildReclaim,
-  buildRecord,
-  buildRevoke,
-  buildWithdraw,
-  buildWithdrawTransfer,
-  createdObjectByType,
-  dryRun,
-  execute,
-  makeClient,
-  txUrl,
-} from 'lyra-plugin-sui'
-import { storeBlobOnChain } from 'lyra-plugin-walrus'
+} from 'lyra-plugin-onchain'
+import { findAndLoadConfig } from '../config/load'
+import { buildOnchainContext, loadAgentFromEnv } from '../util/sui-runtime'
 
-export async function runDemo(): Promise<void> {
-  const cfg = loadConfig()
-  const client = makeClient(cfg.network)
-  if (!process.env.LYRA_AGENT_KEY) throw new Error('LYRA_AGENT_KEY is required')
-  if (!cfg.packageId) throw new Error('LYRA_PACKAGE_ID is required')
+const SUI_TYPE = '0x2::sui::SUI'
 
-  const owner = loadKeypair(process.env.LYRA_AGENT_KEY)
-  const ownerAddr = owner.toSuiAddress()
-  const recipient = process.env.LYRA_DEMO_RECIPIENT?.trim() || ownerAddr
+export interface DemoOpts {
+  yes?: boolean
+}
 
+interface DemoTool {
+  name: string
+  handler: (args: unknown) => Promise<unknown>
+}
+
+/**
+ * Drive the plugin's own `register` against a minimal collector so we get the
+ * exact ToolDefs the chat agent uses — without reaching past the public API.
+ */
+function collectOnchainTools(onchain: OnchainRuntimeContext): Map<string, DemoTool> {
+  const tools = new Map<string, DemoTool>()
+  const ctx = {
+    onchain,
+    registerTool: (t: DemoTool) => tools.set(t.name, t),
+  }
+  onchainPlugin.register(ctx as unknown as Parameters<typeof onchainPlugin.register>[0])
+  return tools
+}
+
+export async function runDemo(opts: DemoOpts = {}): Promise<void> {
+  const found = await findAndLoadConfig()
+  if (!found) {
+    console.log('No lyra.config.ts found. Run `lyra init` first.')
+    process.exit(1)
+  }
+  const { config } = found
+
+  const agent = loadAgentFromEnv()
+  if (!agent) {
+    console.log('No LYRA_AGENT_KEY set. Run `lyra init` first.')
+    process.exit(1)
+  }
+
+  console.log(`lyra demo — agent ${agent.address} on ${config.network}\n`)
+
+  const onchain = buildOnchainContext({
+    agent,
+    network: config.network,
+    agentDir: found.path,
+    brainProvider: config.brain.provider,
+    brainModel: config.brain.model,
+  })
+  const tools = collectOnchainTools(onchain)
+
+  // ── Step 1: policy.show ────────────────────────────────────────────────
+  console.log('1) policy.show')
   const policy = policyFromEnv()
-  const coinType = SUI_TYPE
-  const allowedProtocols = policy.allowedProtocols ?? ['transfer', 'deepbook', 'walrus']
-  const expiryMs = policy.expiryMs ?? Date.now() + 60 * 60_000
-
-  const BUDGET = suiToMist(0.05)
-  const MAX_PER_TX = suiToMist(0.02)
-  const ALLOWED_SPEND = suiToMist(0.01)
-  const BLOCKED_SPEND = suiToMist(0.03)
-
-  const line = (s = '') => console.log(s)
-  const h = (s: string) => line(`\n=== ${s} ===`)
-
-  line(`Lyra demo · ${cfg.network}`)
-  line(`package : ${cfg.packageId}`)
-  line(`owner   : ${ownerAddr}`)
-  line(
-    `policy  : budget ${mistToSui(BUDGET)} SUI · cap ${mistToSui(MAX_PER_TX)} SUI/tx · protocols [${allowedProtocols.join(', ')}]`,
-  )
-
-  // 1. create
-  h('1. create AgentPolicy')
-  const createTx = new Transaction()
-  buildCreatePolicy(createTx, {
-    packageId: cfg.packageId,
-    coinType,
-    agent: ownerAddr,
-    budgetMist: BUDGET,
-    maxPerTxMist: MAX_PER_TX,
-    maxSlippageBps: policy.maxSlippageBps ?? 100,
-    allowedProtocols,
-    expiryMs,
-  })
-  const createRes = await execute(client, owner, createTx)
-  const policyId = createdObjectByType(createRes, '::policy::AgentPolicy<')
-  const capId = createdObjectByType(createRes, '::policy::AgentCap')
-  line(`tx     : ${txUrl(cfg.network, createRes.digest)}`)
-  line(`policy : ${policyId}`)
-  line(`cap    : ${capId}`)
-  if (!policyId || !capId) throw new Error('could not locate created policy/cap objects')
-
-  // 2. allowed guarded spend + Walrus receipt
-  h('2. ALLOWED action — guarded spend + on-chain receipt')
-  const allowedAction: PolicyAction = {
-    kind: 'transfer',
-    protocol: 'transfer',
-    coinType,
-    amountRaw: ALLOWED_SPEND,
-    to: recipient,
+  if (!policy) {
+    console.log(
+      '   (no LYRA_POLICY_* configured — set LYRA_POLICY_MAX_PER_TX_SUI to bound the agent)\n',
+    )
+  } else {
+    console.log(`   ${describePolicy(policy)}\n`)
   }
-  const verdict = evaluatePolicy(allowedAction, { ...policy, maxNativeMistPerTx: MAX_PER_TX })
-  line(`mirror : allowed=${verdict.allowed} requiresApproval=${verdict.requiresApproval}`)
-  if (!verdict.allowed) throw new Error(`mirror unexpectedly blocked: ${verdict.violations.join('; ')}`)
 
-  const artifact = {
-    kind: 'lyra.receipt.v1',
-    network: cfg.network,
-    policyId,
-    agent: ownerAddr,
-    protocol: 'transfer',
-    coinType,
-    amountMist: ALLOWED_SPEND.toString(),
-    amountSui: mistToSui(ALLOWED_SPEND),
-    recipient,
-    status: 'executed',
-    ts: new Date().toISOString(),
+  // ── Step 2: blocked over-cap send (deterministic, no network) ──────────
+  console.log('2) blocked over-cap send (policy enforcement)')
+  if (policy?.maxMistPerTx !== undefined) {
+    const overCap = policy.maxMistPerTx + (suiToMist('1') ?? 0n) // 1 SUI over the cap
+    const verdict = evaluatePolicy(
+      {
+        kind: 'transfer',
+        coinType: SUI_TYPE,
+        amountMist: overCap,
+        to: agent.address,
+        protocol: 'transfer',
+      },
+      policy,
+    )
+    if (!verdict.allowed) {
+      console.log(
+        `   send ${formatSui(overCap)} SUI → BLOCKED ✓  (${verdict.violations.join('; ')})\n`,
+      )
+    } else {
+      console.log(`   send ${formatSui(overCap)} SUI was allowed (cap not enforced?)\n`)
+    }
+  } else {
+    console.log('   skipped: no per-tx cap configured (set LYRA_POLICY_MAX_PER_TX_SUI)\n')
   }
-  const blob = await storeBlobOnChain(JSON.stringify(artifact, null, 2), {
-    suiClient: client,
-    signer: owner,
-    network: cfg.network,
-    epochs: 2,
-  })
-  line(`walrus : ${blob.blobId} (mainnet, paid in WAL)`)
-  line(`         ${blob.url}`)
 
-  const spendTx = new Transaction()
-  buildWithdrawTransfer(spendTx, {
-    packageId: cfg.packageId,
-    coinType,
-    policyId,
-    capId,
-    amountMist: ALLOWED_SPEND,
-    protocol: 'transfer',
-    recipient,
-  })
-  buildRecord(spendTx, {
-    packageId: cfg.packageId,
-    coinType,
-    policyId,
-    capId,
-    protocol: 'transfer',
-    summary: `sent ${mistToSui(ALLOWED_SPEND)} SUI to ${recipient.slice(0, 10)}…`,
-    amountMist: ALLOWED_SPEND,
-    coinTypeStr: coinType,
-    status: 'executed',
-    walrusBlob: blob.blobId,
-  })
-  const spendRes = await execute(client, owner, spendTx)
-  const receiptId = createdObjectByType(spendRes, '::policy::ActionReceipt')
-  line(`tx     : ${txUrl(cfg.network, spendRes.digest)}`)
-  line(`sent   : ${mistToSui(ALLOWED_SPEND)} SUI to ${recipient}`)
-  line(`receipt: ${receiptId} (frozen, immutable, walrus=${blob.blobId.slice(0, 12)}…)`)
-  const fetched = await (await fetch(blob.url)).text()
-  line(`verify : Walrus artifact retrievable (${fetched.length} bytes), linked on-chain`)
-
-  // 3. blocked over-cap
-  h('3. BLOCKED action — over the per-tx cap')
-  const blockedAction: PolicyAction = {
-    kind: 'transfer',
-    protocol: 'transfer',
-    coinType,
-    amountRaw: BLOCKED_SPEND,
-    to: recipient,
+  // ── Live balance (read-only) ────────────────────────────────────────────
+  try {
+    const client = makeSuiClient(config.network)
+    const mist = await getSuiBalanceMist(client, agent.address)
+    console.log(`   agent SUI balance: ${formatSui(mist)} SUI\n`)
+  } catch {
+    // RPC unavailable — fine, the rest is descriptive.
   }
-  const blockedVerdict = evaluatePolicy(blockedAction, { ...policy, maxNativeMistPerTx: MAX_PER_TX })
-  line(`mirror : allowed=${blockedVerdict.allowed} — ${blockedVerdict.violations.join('; ')}`)
-  const blockedTx = new Transaction()
-  const coin = buildWithdraw(blockedTx, {
-    packageId: cfg.packageId,
-    coinType,
-    policyId,
-    capId,
-    amountMist: BLOCKED_SPEND,
-    protocol: 'transfer',
+
+  // ── Steps 3–5: write path ────────────────────────────────────────────────
+  if (!opts.yes) {
+    console.log('3-5) write path (policy.create → sui.send → walrus.store)')
+    console.log('   dry run. Re-run `lyra demo --yes` to execute the on-chain steps:')
+    console.log('     • policy.create — publish a shared lyra::policy AgentPolicy')
+    console.log('     • sui.send      — a small in-cap transfer to self (policy + simulate + execute)')
+    console.log('     • walrus.store  — store the run receipt durably on Walrus')
+    return
+  }
+
+  console.log('3) policy.create')
+  await runTool(tools, 'policy.create', { budgetSui: '1', maxPerTxSui: '0.1', maxSlippageBps: 100 })
+
+  console.log('4) sui.send (in-cap, to self)')
+  await runTool(tools, 'sui.send', { to: agent.address, amount: '0.001' })
+
+  console.log('5) walrus.store (run receipt)')
+  await runTool(tools, 'walrus.store', {
+    content: JSON.stringify({ demo: 'lyra', agent: agent.address, ts: Date.now() }),
   })
-  blockedTx.transferObjects([coin], blockedTx.pure.address(recipient))
-  const blockedSim = await dryRun(client, blockedTx, ownerAddr)
-  line(`chain  : would-execute=${blockedSim.ok} ${blockedSim.ok ? '' : `(aborted: ${blockedSim.error})`}`)
+}
 
-  // 4. revoke
-  h('4. revoke the policy (owner)')
-  const revokeTx = new Transaction()
-  buildRevoke(revokeTx, { packageId: cfg.packageId, coinType, policyId })
-  const revokeRes = await execute(client, owner, revokeTx)
-  line(`tx     : ${txUrl(cfg.network, revokeRes.digest)}`)
+async function runTool(
+  tools: Map<string, DemoTool>,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<void> {
+  const tool = tools.get(name)
+  if (!tool) {
+    console.log(`   tool ${name} not registered; skipped`)
+    console.log('')
+    return
+  }
+  try {
+    const res = (await tool.handler(args)) as { ok?: boolean; error?: string; data?: unknown }
+    if (res.ok === false) console.log(`   ${name} failed: ${res.error}`)
+    else console.log(`   ${name} ok: ${JSON.stringify(res.data)}`)
+  } catch (e) {
+    console.log(`   ${name} threw: ${(e as Error).message.slice(0, 200)}`)
+  }
+  console.log('')
+}
 
-  // 5. post-revoke abort
-  h('5. post-revoke — any spend now aborts on-chain')
-  const afterTx = new Transaction()
-  const coin2 = buildWithdraw(afterTx, {
-    packageId: cfg.packageId,
-    coinType,
-    policyId,
-    capId,
-    amountMist: ALLOWED_SPEND,
-    protocol: 'transfer',
-  })
-  afterTx.transferObjects([coin2], afterTx.pure.address(recipient))
-  const afterSim = await dryRun(client, afterTx, ownerAddr)
-  line(`chain  : would-execute=${afterSim.ok} ${afterSim.ok ? '' : `(aborted: ${afterSim.error})`}`)
-
-  // 6. reclaim
-  h('6. reclaim remaining budget (owner)')
-  const reclaimTx = new Transaction()
-  buildReclaim(reclaimTx, { packageId: cfg.packageId, coinType, policyId })
-  const reclaimRes = await execute(client, owner, reclaimTx)
-  line(`tx     : ${txUrl(cfg.network, reclaimRes.digest)}`)
-  line('remaining budget returned to owner')
-
-  line('\n✅ demo complete — the AI acted only inside the policy; the chain enforced the rest.')
+function describePolicy(p: SuiPolicy): string {
+  const parts: string[] = []
+  if (p.maxMistPerTx !== undefined) parts.push(`maxPerTx=${formatSui(p.maxMistPerTx)} SUI`)
+  if (p.autoMaxMistPerTx !== undefined) parts.push(`autoMax=${formatSui(p.autoMaxMistPerTx)} SUI`)
+  if (p.autonomy) parts.push(`autonomy=${p.autonomy}`)
+  if (p.readOnly) parts.push('READ-ONLY')
+  return parts.length ? parts.join(', ') : '(no caps set)'
 }

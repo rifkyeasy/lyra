@@ -1,27 +1,50 @@
 {
   "name": "lyra-ai-agent",
-  "version": "0.1.0",
-  "description": "Lyra AI — a Sui-native, policy-bound AI agent for autonomous DeFi. The AI proposes, Sui policies enforce, Walrus remembers. TUI chat with the `lyra` command.",
-  "license": "MIT",
+  "version": "0.3.3",
   "type": "module",
-  "bin": { "lyra": "./bin/lyra" },
+  "description": "lyra CLI: a Sui-native, policy-bound AI finance agent. Real on-chain work gated by deterministic policy, simulation, and approval",
+  "license": "MIT",
+  "homepage": "https://github.com/rifkyeasy/lyra",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rifkyeasy/lyra.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/rifkyeasy/lyra/issues"
+  },
+  "keywords": ["lyra", "ai", "agent", "cli", "tui", "sui", "walrus", "deepbook", "defi"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.1"
+  },
+  "files": ["src", "!src/**/*.test.ts", "bin", "README.md"],
+  "bin": {
+    "lyra": "bin/lyra"
+  },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "files": ["src", "bin"],
-  "publishConfig": { "access": "public" },
-  "keywords": ["sui", "ai", "agent", "defi", "walrus", "autonomous", "policy", "tui"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "bun test"
+  },
   "dependencies": {
-    "lyra-core": "0.1.0",
-    "lyra-plugin-sui": "0.1.0",
-    "lyra-plugin-walrus": "0.1.0",
-    "lyra-plugin-deepbook": "0.1.0",
-    "lyra-plugin-telegram": "0.1.0",
-    "@mysten/sui": "^1.45.0",
+    "@clack/prompts": "^0.8.2",
+    "@mysten/sui": "^1.45.2",
     "@opentui/core": "^0.1.97",
     "@opentui/solid": "^0.1.97",
-    "solid-js": "^1.9.12",
-    "@clack/prompts": "^0.8.2",
-    "picocolors": "^1.1.1"
+    "lyra-core": "workspace:*",
+    "lyra-gateway": "workspace:*",
+    "lyra-plugin-onchain": "workspace:*",
+    "lyra-plugin-system": "workspace:*",
+    "lyra-plugin-telegram": "workspace:*",
+    "picocolors": "^1.1.1",
+    "qrcode-terminal": "^0.12.0",
+    "solid-js": "^1.9.12"
+  },
+  "devDependencies": {
+    "@types/qrcode-terminal": "^0.12.2"
   }
 }

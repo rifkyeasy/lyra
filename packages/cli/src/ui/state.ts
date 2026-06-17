@@ -3,7 +3,7 @@ import type {
   PermissionMode,
   PermissionRequest,
   SlashCommand,
-} from '../compat'
+} from 'lyra-core'
 import { createSignal } from 'solid-js'
 
 export type TurnRole =
@@ -29,7 +29,7 @@ export interface TurnRow {
   // v0.21.2: drives the ↪ prefix so operators see the SAME logical fetch was
   // escalated, not a fresh brain decision.
   autoEscalated?: boolean
-  // True only for the first row in an "nebula block" (assistant + tool-call rows
+  // True only for the first row in an "lyra block" (assistant + tool-call rows
   // that share the same speaker turn). Computed once at push time so the For
   // loop renderer doesn't re-walk neighbors on every state mutation.
   firstOfBlock?: boolean
@@ -45,7 +45,7 @@ interface CreateChatStateOpts {
   identityLabel: string
   approvalsMode: PermissionMode
   // v0.24.4: true when the TUI talks to a local gateway daemon over a unix
-  // socket (`~/.nebula/agents/<id>/gateway.sock`) instead of a remote Daytona
+  // socket (`~/.lyra/agents/<id>/gateway.sock`) instead of a remote Daytona
   // sandbox endpoint. Drives statusbar copy (drops the "sandbox X" prefix on
   // the system line) and hides the sandbox-billing balance segment (which is
   // meaningless for local deploys — there is no billing reserve to surface).
@@ -64,14 +64,14 @@ export function createChatState(opts: CreateChatStateOpts) {
   const [pendingApproval, setPendingApproval] = createSignal<PendingApproval | null>(null)
   const [approvalsMode, setApprovalsMode] = createSignal<PermissionMode>(opts.approvalsMode)
 
-  // Mantle Compute ledger balance, in Mantle. Refreshed at chat init and after each
+  // Sui Compute ledger balance, in Sui. Refreshed at chat init and after each
   // per-turn auto-sync. null = not yet fetched / fetch failed.
   const [balance, setBalance] = createSignal<number | null>(null)
-  // Agent EOA balance, in Mantle. Pays gas for chain writes (agent.message
+  // Agent EOA balance, in Sui. Pays gas for chain writes (agent.message
   // inbox.send, sync's updateSlots anchor). Typically starves before the
-  // compute ledger in long sessions (~0.001 Mantle/send at 4 gwei).
+  // compute ledger in long sessions (~0.001 Sui/send at 4 gwei).
   const [eoaBalance, setEoaBalance] = createSignal<number | null>(null)
-  // v0.22.0: Mantle Sandbox billing reserve, in Mantle. Sandbox-deployed agents only —
+  // v0.22.0: Sui Sandbox billing reserve, in Sui. Sandbox-deployed agents only —
   // local-mode TUI stays null and the statusline `<Show>` hides the segment.
   // Auto-topup refills this when it dips below the configured threshold; the
   // statusline mirror lets operators see the same balance without leaving TUI.

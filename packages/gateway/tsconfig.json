@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "composite": true,
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true
+  },
+  "references": [
+    { "path": "../core" },
+    { "path": "../plugin-system" },
+    { "path": "../plugin-onchain" },
+    { "path": "../plugin-telegram" }
+  ],
+  "include": ["src/**/*.ts"]
+}

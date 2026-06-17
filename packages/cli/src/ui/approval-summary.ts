@@ -1,13 +1,9 @@
-import type { PermissionRequest } from '../compat'
+import type { PermissionRequest } from 'lyra-core'
 import { shortAddr } from '../util/format'
 
 /**
  * Body line for the approval modal. Friendly text for value-moving onchain
  * kinds; falls back to command/path for shell.run / fs.write / code.execute.
- *
- * Why the `'→'` sniff in chain.send: chain.wrap and chain.unwrap reuse
- * `chain.send` as their permission kind but encode the operation in `token`
- * (`MNT→WMNT` / `WMNT→MNT`) and have no recipient to display.
  */
 export function summarizeApprovalSubject(req: PermissionRequest): string {
   const amt = req.amount ?? ''
@@ -15,7 +11,7 @@ export function summarizeApprovalSubject(req: PermissionRequest): string {
   switch (req.kind) {
     case 'chain.send': {
       if (tok.includes('→')) return `${amt} ${tok}`.trim()
-      const tokenLabel = tok || 'MNT'
+      const tokenLabel = tok || 'SUI'
       return `send ${amt} ${tokenLabel} to ${shortAddr(req.recipient)}`
     }
     case 'chain.swap':

@@ -1,29 +1,44 @@
-import { startTelegram } from 'lyra-plugin-telegram'
-import pc from 'picocolors'
-import { runGoal } from './agent'
+/**
+ * `lyra telegram <subcommand>` — argv dispatcher.
+ *
+ * Subcommands:
+ *   setup    interactive wizard: validate token, encrypt + persist locally
+ *   status   confirm token still valid + show stored config
+ *   remove   delete the encrypted local blob (does NOT revoke at @BotFather)
+ */
 
-/** Run the Lyra agent as a Telegram bot (drive the same agent from your phone). */
-export async function runTelegram(): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
-  if (!token) {
-    console.log(pc.yellow('set TELEGRAM_BOT_TOKEN (from @BotFather) to use the Telegram interface'))
-    console.log(pc.dim('optional: TELEGRAM_CHAT_ID to allow-list a single chat'))
-    return
+export interface TelegramArgs {
+  sub: 'setup' | 'status' | 'remove'
+  yes?: boolean
+}
+
+const VALID_SUBS = ['setup', 'status', 'remove'] as const
+
+export function parseTelegramArgs(argv: string[]): TelegramArgs | { error: string } {
+  const sub = argv[0]
+  if (!sub) return { error: 'usage: lyra telegram <setup | status | remove>' }
+  const valid = (VALID_SUBS as readonly string[]).includes(sub)
+  if (!valid) return { error: `unknown subcommand '${sub}' (expected: ${VALID_SUBS.join(' | ')})` }
+  const yes = argv.includes('--yes') || argv.includes('-y')
+  return { sub: sub as TelegramArgs['sub'], yes }
+}
+
+export async function runTelegram(args: TelegramArgs): Promise<void> {
+  switch (args.sub) {
+    case 'setup': {
+      const { runTelegramSetup } = await import('./telegram-setup')
+      await runTelegramSetup()
+      return
+    }
+    case 'status': {
+      const { runTelegramStatus } = await import('./telegram-status')
+      await runTelegramStatus()
+      return
+    }
+    case 'remove': {
+      const { runTelegramRemove } = await import('./telegram-remove')
+      await runTelegramRemove({ yes: args.yes })
+      return
+    }
   }
-  console.log('starting Lyra Telegram bot… (Ctrl-C to stop)')
-  await startTelegram({
-    token,
-    allowedChatId: process.env.TELEGRAM_CHAT_ID,
-    log: (s) => console.log(s),
-    onMessage: async (text) => {
-      const result = await runGoal(text, { log: false })
-      const lines: string[] = []
-      for (const e of result.events) {
-        if (e.type === 'tool-call') lines.push(`⏺ ${e.name}`)
-      }
-      if (result.finalText) lines.push(`\n${result.finalText}`)
-      for (const x of result.executed) lines.push(`\n✅ ${x.summary}\n${x.txUrl}`)
-      return lines.join('\n') || '(no response)'
-    },
-  })
 }
