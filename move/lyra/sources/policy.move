@@ -16,6 +16,7 @@ module lyra::policy;
 use std::string::String;
 use std::type_name;
 use sui::clock::Clock;
+use sui::dynamic_field as df;
 use sui::event;
 
 // === Errors ===
@@ -29,6 +30,12 @@ const ECoinNotAllowed: u64 = 5;
 const EProtocolNotAllowed: u64 = 6;
 const EWrongPolicy: u64 = 7;
 const EZeroAmount: u64 = 8;
+const ERecipientNotAllowed: u64 = 9;
+
+/// Dynamic-field key holding the optional transfer-recipient allowlist. Stored as
+/// a dynamic field (not a struct field) so it can be added to policies created
+/// before this capability existed, without breaking the upgrade-compatible layout.
+const RECIPIENTS_KEY: vector<u8> = b"lyra.recipients";
 
 // === Structs ===
 
@@ -127,6 +134,8 @@ public struct AgentRotated has copy, drop {
     old_agent: address,
     new_agent: address,
 }
+
+public struct RecipientsSet has copy, drop { policy_id: ID, count: u64 }
 
 // === Create ===
 
@@ -322,6 +331,37 @@ entry fun rotate_agent(policy: &mut AgentPolicy, cap: &PolicyOwnerCap, new_agent
     let old_agent = policy.agent;
     policy.agent = new_agent;
     event::emit(AgentRotated { policy_id: object::id(policy), old_agent, new_agent });
+}
+
+/// Owner sets the transfer-recipient allowlist. An empty vector (or no allowlist
+/// at all) means ANY recipient is permitted — so this is opt-in hardening. With a
+/// non-empty list, the agent may only transfer to those addresses, even within
+/// budget; this bounds a prompt-injected or compromised agent to known payees.
+public fun set_allowed_recipients(
+    policy: &mut AgentPolicy,
+    cap: &PolicyOwnerCap,
+    recipients: vector<address>,
+) {
+    assert!(cap.policy_id == object::id(policy), EWrongPolicy);
+    if (df::exists_(&policy.id, RECIPIENTS_KEY)) {
+        let _old: vector<address> = df::remove(&mut policy.id, RECIPIENTS_KEY);
+    };
+    let count = recipients.length();
+    df::add(&mut policy.id, RECIPIENTS_KEY, recipients);
+    event::emit(RecipientsSet { policy_id: object::id(policy), count });
+}
+
+/// True when `recipient` is permitted: no allowlist set, or an empty allowlist,
+/// means any recipient; otherwise the recipient must be listed.
+public fun recipient_allowed(policy: &AgentPolicy, recipient: address): bool {
+    if (!df::exists_(&policy.id, RECIPIENTS_KEY)) return true;
+    let list: &vector<address> = df::borrow(&policy.id, RECIPIENTS_KEY);
+    list.is_empty() || list.contains(&recipient)
+}
+
+/// Abort unless `recipient` is allowed. Used by `lyra::vault::vault_transfer`.
+public fun assert_recipient_allowed(policy: &AgentPolicy, recipient: address) {
+    assert!(recipient_allowed(policy, recipient), ERecipientNotAllowed);
 }
 
 // === Getters ===

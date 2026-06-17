@@ -154,6 +154,27 @@ public fun vault_spend<T>(
     (coin, receipt)
 }
 
+/// Recipient-checked transfer from the vault. Enforces the policy's optional
+/// recipient allowlist ON-CHAIN, then draws `amount_mist` via the full policy gate
+/// (`vault_spend`) and sends it to `recipient`; the receipt goes to the owner.
+/// This is the hardened path for agent transfers — with a recipient allowlist set,
+/// a prompt-injected or compromised agent can still only pay the owner's approved
+/// payees, even within budget.
+public fun vault_transfer<T>(
+    vault: &mut Vault<T>,
+    policy: &mut AgentPolicy,
+    amount_mist: u64,
+    recipient: address,
+    memo: vector<u8>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    policy::assert_recipient_allowed(policy, recipient);
+    let (coin, receipt) = vault_spend<T>(vault, policy, amount_mist, @0x0, b"transfer", memo, clock, ctx);
+    transfer::public_transfer(coin, recipient);
+    transfer::public_transfer(receipt, policy::owner(policy));
+}
+
 // === Withdraw (owner escape hatch) ===
 
 /// Owner pulls funds back out. Cap-gated: only the holder of the matching

@@ -95,6 +95,58 @@ fun owner_withdraws_treasury_back() {
     destroy(cap);
 }
 
+#[test]
+/// With a recipient allowlist set, the agent can transfer to a listed payee.
+fun recipient_allowlist_permits_listed_payee() {
+    let mut ctx = tx_context::dummy();
+    let clk = clock::create_for_testing(&mut ctx);
+    let (mut policy, cap) =
+        policy::new_policy_for_testing(AGENT, 1000, 1000, 0, vector[], vector[], &mut ctx);
+    policy::set_allowed_recipients(&mut policy, &cap, vector[@0xBEEF]);
+    let mut v = vault::new<SUI>(&policy, &mut ctx);
+    vault::deposit(&mut v, coin::mint_for_testing<SUI>(1000, &mut ctx));
+
+    vault::vault_transfer<SUI>(&mut v, &mut policy, 100, @0xBEEF, b"", &clk, &mut ctx);
+    assert!(vault::value(&v) == 900);
+
+    destroy(v);
+    destroy(policy);
+    destroy(cap);
+    clock::destroy_for_testing(clk);
+}
+
+#[test, expected_failure]
+/// A transfer to an UNLISTED recipient aborts, even within budget (the key
+/// prompt-injection mitigation).
+fun recipient_allowlist_blocks_unlisted_payee() {
+    let mut ctx = tx_context::dummy();
+    let clk = clock::create_for_testing(&mut ctx);
+    let (mut policy, cap) =
+        policy::new_policy_for_testing(AGENT, 1000, 1000, 0, vector[], vector[], &mut ctx);
+    policy::set_allowed_recipients(&mut policy, &cap, vector[@0xBEEF]);
+    let mut v = vault::new<SUI>(&policy, &mut ctx);
+    vault::deposit(&mut v, coin::mint_for_testing<SUI>(1000, &mut ctx));
+
+    vault::vault_transfer<SUI>(&mut v, &mut policy, 100, @0xBAD, b"", &clk, &mut ctx);
+
+    destroy(v);
+    destroy(policy);
+    destroy(cap);
+    clock::destroy_for_testing(clk);
+}
+
+#[test]
+/// No allowlist (or an empty one) leaves transfers open to any recipient.
+fun recipient_open_by_default() {
+    let mut ctx = tx_context::dummy();
+    let (policy, cap) =
+        policy::new_policy_for_testing(AGENT, 1000, 1000, 0, vector[], vector[], &mut ctx);
+    assert!(policy::recipient_allowed(&policy, @0xBAD));
+    assert!(policy::recipient_allowed(&policy, @0xBEEF));
+    destroy(policy);
+    destroy(cap);
+}
+
 #[test, expected_failure]
 /// A cap from a different policy must not control this vault (ENotVaultOwner).
 fun foreign_cap_cannot_withdraw() {

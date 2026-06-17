@@ -9,10 +9,10 @@ import 'server-only'
 
 import { deriveAgentKeypair } from '@/lib/agent-derive'
 import type { PendingAction } from '@/lib/chat-store'
+import { getAgentSigner, signAndExecute } from '@/lib/signer'
 import { CLOCK, PKG, SUI_TYPE, resolveOwnerVault } from '@/lib/vault'
 import sevenk from '@7kprotocol/sdk-ts'
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
-import type { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import { Transaction } from '@mysten/sui/transactions'
 
 const isSui = (t: string) => t === SUI_TYPE || t.endsWith('::sui::SUI')
@@ -40,7 +40,7 @@ export interface ExecResult {
 async function executeTransfer(
   action: Extract<PendingAction, { kind: 'transfer' }>,
   owner: string,
-  kp: Ed25519Keypair,
+  agentAddr: string,
 ): Promise<ExecResult> {
   if (!isSui(action.coinType)) {
     return { ok: false, error: 'your treasury vault holds SUI — only SUI transfers are vault-backed for now' }
@@ -56,24 +56,24 @@ async function executeTransfer(
   }
 
   const tx = new Transaction()
-  tx.setSender(kp.toSuiAddress())
-  const [coin, receipt] = tx.moveCall({
-    target: `${PKG}::vault::vault_spend`,
+  tx.setSender(agentAddr)
+  // vault_transfer enforces the policy's recipient allowlist ON-CHAIN (a prompt-
+  // injected agent can't pay an un-allowlisted address even within budget), then
+  // draws from the vault via the full policy gate and sends to the recipient.
+  tx.moveCall({
+    target: `${PKG}::vault::vault_transfer`,
     typeArguments: [SUI_TYPE],
     arguments: [
       tx.object(ov.vaultId),
       tx.object(ov.policyId),
       tx.pure.u64(amount),
-      tx.pure.address('0x0'),
-      enc(tx, 'transfer'),
+      tx.pure.address(action.recipient),
       enc(tx, 'web transfer'),
       tx.object(CLOCK),
     ],
   })
-  tx.transferObjects([coin], action.recipient)
-  tx.transferObjects([receipt], owner)
 
-  const res = await sui.signAndExecuteTransaction({ signer: kp, transaction: tx, options: { showEffects: true } })
+  const res = await signAndExecute(sui, owner, tx)
   if (res.effects?.status?.status !== 'success') {
     return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
   }
@@ -84,7 +84,7 @@ async function executeTransfer(
 async function executeSwap(
   action: Extract<PendingAction, { kind: 'swap' }>,
   owner: string,
-  kp: Ed25519Keypair,
+  agentAddr: string,
 ): Promise<ExecResult> {
   if (!isSui(action.fromType)) {
     return { ok: false, error: 'your treasury vault holds SUI — only SUI-funded swaps are vault-backed for now' }
@@ -99,7 +99,7 @@ async function executeSwap(
     return { ok: false, error: `vault holds ${Number(ov.vaultMist) / 1e9} SUI; deposit more to swap this` }
   }
 
-  const me = kp.toSuiAddress()
+  const me = agentAddr
   const slippageBps = Number(process.env.LYRA_POLICY_MAX_SLIPPAGE_BPS ?? '100')
   // biome-ignore lint/suspicious/noExplicitAny: 7k default export carries MetaAg
   const ag = new (sevenk as any).MetaAg({ slippageBps })
@@ -139,7 +139,7 @@ async function executeSwap(
         failures.push(`${q.provider}: ${dr.effects?.status?.error ?? 'revert'}`)
         continue
       }
-      const res = await sui.signAndExecuteTransaction({ signer: kp, transaction: tx, options: { showEffects: true } })
+      const res = await signAndExecute(sui, owner, tx)
       if (res.effects?.status?.status !== 'success') {
         failures.push(`${q.provider}: ${res.effects?.status?.error ?? 'exec failed'}`)
         continue
@@ -156,9 +156,11 @@ async function executeSwap(
 /** Execute `action` with the agent + vault that belong to `owner` (signed-in). */
 export async function executeAction(action: PendingAction, owner: string): Promise<ExecResult> {
   try {
-    const kp = deriveAgentKeypair(owner)
-    if (action.kind === 'transfer') return await executeTransfer(action, owner, kp)
-    if (action.kind === 'swap') return await executeSwap(action, owner, kp)
+    // The agent address comes from the signer (local-derived in dev, or a remote
+    // KMS/MPC signer in prod) — the private key never appears in this module.
+    const agentAddr = await getAgentSigner().agentAddress(owner)
+    if (action.kind === 'transfer') return await executeTransfer(action, owner, agentAddr)
+    if (action.kind === 'swap') return await executeSwap(action, owner, agentAddr)
     return { ok: false, error: 'unknown action' }
   } catch (e) {
     return { ok: false, error: (e as Error).message.slice(0, 200) }
