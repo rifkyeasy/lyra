@@ -176,6 +176,9 @@ async function runScallopWrite(
     if (res.effects?.status?.status !== 'success') {
       return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
     }
+    // Wait for the tx to settle/index so a follow-up action (e.g. an immediate
+    // withdraw after a supply) doesn't race the not-yet-indexed position.
+    await ctx.client.waitForTransaction({ digest: res.digest })
     return {
       ok: true,
       data: {

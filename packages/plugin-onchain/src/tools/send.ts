@@ -90,6 +90,8 @@ export function makeSuiSend(ctx: OnchainRuntimeContext): ToolDef<Args> {
             error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
           }
         }
+        // Settle/index before returning so a follow-up balance read is accurate.
+        await ctx.client.waitForTransaction({ digest: res.digest })
         const receipt = res.objectChanges?.find(
           c =>
             c.type === 'created' &&
