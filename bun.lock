@@ -137,6 +137,7 @@
       "name": "lyra-plugin-telegram",
       "version": "0.3.2",
       "dependencies": {
+        "@mysten/sui": "^1.45.0",
         "grammy": "^1.42.0",
         "lyra-core": "workspace:*",
         "zod": "^3.23.8",

@@ -28,8 +28,9 @@
     "test": "bun test"
   },
   "dependencies": {
-    "lyra-core": "workspace:*",
+    "@mysten/sui": "^1.45.0",
     "grammy": "^1.42.0",
+    "lyra-core": "workspace:*",
     "zod": "^3.23.8"
   }
 }
