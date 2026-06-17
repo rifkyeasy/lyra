@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { HeroCanvas } from './HeroCanvas'
-import Lightfall from './hero/LightfallBg'
+import LineWaves from './hero/LineWavesBg'
 
 const lineVariants = {
   hidden: { opacity: 0, y: 26, filter: 'blur(8px)' },
@@ -36,27 +36,28 @@ export function Hero() {
   return (
     <section
       id="hero"
-      className="relative isolate flex flex-col bg-[var(--color-cream)]"
+      className="relative isolate flex flex-col overflow-hidden bg-[var(--color-cream)]"
       aria-labelledby="hero-headline"
     >
-      <div className="mx-auto flex h-screen w-full max-w-[var(--container-wrap)] flex-col items-center justify-center px-6 text-center sm:px-8">
-        <Lightfall
-          colors={['#A6C8FF', '#5227FF', '#FF9FFC']}
-          backgroundColor="#0A29FF"
-          speed={0.5}
-          streakCount={2}
-          streakWidth={1}
-          streakLength={1}
-          glow={1}
-          density={0.6}
-          twinkle={1}
-          zoom={3}
-          backgroundGlow={0.5}
-          opacity={1}
-          mouseInteraction
-          mouseStrength={0.5}
-          mouseRadius={1}
-      />
+      {/* full-screen animated background — sits behind all hero content */}
+      <div className="pointer-events-none absolute inset-0 -z-10">
+        <LineWaves
+          speed={0.3}
+          innerLineCount={32}
+          outerLineCount={36}
+          warpIntensity={1}
+          rotation={-45}
+          edgeFadeWidth={0}
+          colorCycleSpeed={1}
+          brightness={0.2}
+          color1="#ffffff"
+          color2="#ffffff"
+          color3="#ffffff"
+          enableMouseInteraction
+          mouseInfluence={2}
+        />
+      </div>
+      <div className="relative z-10 mx-auto flex h-screen w-full max-w-[var(--container-wrap)] flex-col items-center justify-center px-6 text-center sm:px-8">
         <motion.h1
           id="hero-headline"
           initial="hidden"
@@ -107,7 +108,7 @@ export function Hero() {
         initial={{ opacity: 0, y: 32 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 1, delay: 0.95, ease: [0.22, 1, 0.36, 1] }}
-        className="mx-auto mt-8 w-full max-w-[1544px] px-4 pb-12 sm:mt-11 sm:px-8 sm:pb-16 lg:mt-12"
+        className="relative z-10 mx-auto mt-8 w-full max-w-[1544px] px-4 pb-12 sm:mt-11 sm:px-8 sm:pb-16 lg:mt-12"
       >
         <HeroCanvas />
       </motion.div>
