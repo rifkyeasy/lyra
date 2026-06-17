@@ -29,6 +29,13 @@ async function main(): Promise<void> {
       await runStatus()
       return
     }
+    case 'whoami': {
+      const { runWhoami } = await import('./commands/whoami')
+      const ownerIdx = argv.indexOf('--owner')
+      const owner = ownerIdx >= 0 ? argv[ownerIdx + 1] : undefined
+      await runWhoami({ owner })
+      return
+    }
     case 'demo': {
       const { runDemo } = await import('./commands/demo')
       await runDemo({ yes: argv.includes('--yes') || argv.includes('-y') })
@@ -109,6 +116,7 @@ function printHelp(): void {
       '  lyra init                bootstrap the agent config (uses LYRA_AGENT_KEY)',
       '  lyra [--yolo]            interactive chat with your agent (default; --yolo skips approvals)',
       '  lyra status              show agent address + network + SUI balance + policy',
+      '  lyra whoami [--owner 0x…] resolve the agent wallet an owner controls (same on web/CLI/TG)',
       '  lyra demo [--yes]        run the guarded pipeline (policy → blocked over-cap → send → walrus)',
       '  lyra logs                tail the activity log  (flags: --tail N, --agent <id>)',
       '  lyra model               re-pick the brain model',

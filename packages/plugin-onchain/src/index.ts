@@ -54,6 +54,7 @@ export {
   type PolicyVerdict,
 } from './policy'
 export { policyRequiresApprovalForCall } from './approval'
+export { deriveAgentKeypair, deriveAgentAddress } from './derive'
 export { ONCHAIN_GUIDANCE } from './guidance'
 export type { OnchainRuntimeContext } from './types'
 
