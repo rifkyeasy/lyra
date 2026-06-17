@@ -1,8 +1,32 @@
+import { createRequire } from 'node:module'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { NextConfig } from 'next'
 
+// Dedupe @tanstack/react-query to a single physical copy. In the bun workspace
+// both apps/web and the hoisted root have their own copy; @mysten/dapp-kit's
+// hooks would otherwise read a different QueryClientContext instance than the
+// app's <QueryClientProvider>, throwing "No QueryClient set" during SSR.
+const require = createRequire(`${import.meta.url}/`)
+const DEDUPE = ['@tanstack/react-query', '@tanstack/query-core'] as const
+const dedupeAlias: Record<string, string> = {}
+for (const pkg of DEDUPE) {
+  try {
+    dedupeAlias[pkg] = path.dirname(require.resolve(`${pkg}/package.json`))
+  } catch {
+    // package not present — skip
+  }
+}
+
 const config: NextConfig = {
   reactStrictMode: true,
+  turbopack: {
+    resolveAlias: dedupeAlias,
+  },
+  webpack: webpackConfig => {
+    webpackConfig.resolve.alias = { ...webpackConfig.resolve.alias, ...dedupeAlias }
+    return webpackConfig
+  },
   // Pin file-tracing root to this app so Next doesn't warn about the bun
   // workspace root vs the app-local lockfile created on the deploy host.
   outputFileTracingRoot: fileURLToPath(new URL('.', import.meta.url)),
