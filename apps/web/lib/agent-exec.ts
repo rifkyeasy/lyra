@@ -1,26 +1,22 @@
-// Server-side AGENT execution for the web console. The policy-bound agent wallet
-// (LYRA_AGENT_KEY) signs + pays — identical model to the CLI / gateway / Telegram.
-// The browser never signs: the connected wallet only proves owner identity (SIWS
-// session); this module, gated by /api/execute, runs the action with the agent
-// key, enforcing the same LYRA_POLICY_* guardrails before broadcasting.
+// Server-side AGENT execution for the web console. MULTI-TENANT: each owner gets
+// their own deterministically-derived agent wallet (see agent-derive.ts); this
+// module signs with the SIGNED-IN OWNER's agent — identical model to the CLI /
+// gateway / Telegram. The browser never signs: the connected wallet only proves
+// owner identity (SIWS session); /api/execute passes that owner here, we derive
+// their agent and run the action, enforcing the LYRA_POLICY_* guardrails.
 import 'server-only'
 
+import { deriveAgentKeypair } from '@/lib/agent-derive'
 import type { PendingAction } from '@/lib/chat-store'
 import sevenk from '@7kprotocol/sdk-ts'
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
-import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
+import type { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import { Transaction, coinWithBalance } from '@mysten/sui/transactions'
 
 const SUI_TYPE = '0x2::sui::SUI'
 const isSui = (t: string) => t === SUI_TYPE || t.endsWith('::sui::SUI')
 
 const sui = new SuiClient({ url: getFullnodeUrl('mainnet') })
-
-function agentKeypair(): Ed25519Keypair {
-  const secret = process.env.LYRA_AGENT_KEY
-  if (!secret) throw new Error('agent key not configured on the server (LYRA_AGENT_KEY)')
-  return Ed25519Keypair.fromSecretKey(secret.trim())
-}
 
 /** Off-chain mirror of the AgentPolicy — the same LYRA_POLICY_* vars the CLI reads. */
 function policyCheck(opts: { coinTypeIn: string; amountMist: bigint; coinTypeOut?: string }): string | null {
@@ -50,12 +46,14 @@ export interface ExecResult {
   error?: string
 }
 
-async function executeTransfer(action: Extract<PendingAction, { kind: 'transfer' }>): Promise<ExecResult> {
+async function executeTransfer(
+  action: Extract<PendingAction, { kind: 'transfer' }>,
+  kp: Ed25519Keypair,
+): Promise<ExecResult> {
   const amount = BigInt(action.baseUnits)
   const violation = policyCheck({ coinTypeIn: action.coinType, amountMist: amount })
   if (violation) return { ok: false, error: `policy blocked: ${violation}` }
 
-  const kp = agentKeypair()
   const tx = new Transaction()
   tx.setSender(kp.toSuiAddress())
   const coin = isSui(action.coinType)
@@ -71,12 +69,14 @@ async function executeTransfer(action: Extract<PendingAction, { kind: 'transfer'
   return { ok: true, digest: res.digest }
 }
 
-async function executeSwap(action: Extract<PendingAction, { kind: 'swap' }>): Promise<ExecResult> {
+async function executeSwap(
+  action: Extract<PendingAction, { kind: 'swap' }>,
+  kp: Ed25519Keypair,
+): Promise<ExecResult> {
   const amount = BigInt(action.baseUnits)
   const violation = policyCheck({ coinTypeIn: action.fromType, amountMist: amount, coinTypeOut: action.toType })
   if (violation) return { ok: false, error: `policy blocked: ${violation}` }
 
-  const kp = agentKeypair()
   const me = kp.toSuiAddress()
   const slippageBps = Number(process.env.LYRA_POLICY_MAX_SLIPPAGE_BPS ?? '100')
   // biome-ignore lint/suspicious/noExplicitAny: 7k default export carries MetaAg
@@ -120,20 +120,23 @@ async function executeSwap(action: Extract<PendingAction, { kind: 'swap' }>): Pr
   return { ok: false, error: `no route executed cleanly — ${failures.join(' | ')}` }
 }
 
-export async function executeAction(action: PendingAction): Promise<ExecResult> {
+/** Execute `action` with the agent wallet that belongs to `owner` (the signed-in
+ *  Sui address). Each owner directs only their own derived agent. */
+export async function executeAction(action: PendingAction, owner: string): Promise<ExecResult> {
   try {
-    if (action.kind === 'transfer') return await executeTransfer(action)
-    if (action.kind === 'swap') return await executeSwap(action)
+    const kp = deriveAgentKeypair(owner)
+    if (action.kind === 'transfer') return await executeTransfer(action, kp)
+    if (action.kind === 'swap') return await executeSwap(action, kp)
     return { ok: false, error: 'unknown action' }
   } catch (e) {
     return { ok: false, error: (e as Error).message.slice(0, 200) }
   }
 }
 
-/** The agent's own Sui address (server-derived), for display / owner checks. */
-export function agentAddress(): string | null {
+/** The Sui address of the agent that belongs to `owner` (for display / funding). */
+export function agentAddress(owner: string): string | null {
   try {
-    return agentKeypair().toSuiAddress()
+    return deriveAgentKeypair(owner).toSuiAddress()
   } catch {
     return null
   }
