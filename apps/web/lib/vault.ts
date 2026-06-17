@@ -6,13 +6,13 @@ import 'server-only'
 
 import { deriveAgentAddress } from '@/lib/agent-derive'
 import { CLOCK, LYRA_PKG, ORIGINAL_PKG, SUI_TYPE, VAULT_PKG } from '@/lib/onchain-constants'
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
+import { webSuiClient } from '@/lib/ops'
 
 // LATEST package id (env override wins), re-exported for the execution path.
 export const PKG = process.env.LYRA_PACKAGE_ID ?? LYRA_PKG
 export { SUI_TYPE, CLOCK, ORIGINAL_PKG, VAULT_PKG }
 
-const sui = new SuiClient({ url: getFullnodeUrl('mainnet') })
+const sui = webSuiClient()
 
 export interface OwnerVault {
   policyId: string

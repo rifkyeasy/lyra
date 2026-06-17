@@ -9,14 +9,14 @@ import 'server-only'
 
 import { deriveAgentKeypair } from '@/lib/agent-derive'
 import type { PendingAction } from '@/lib/chat-store'
+import { logAction, webSuiClient } from '@/lib/ops'
 import { getAgentSigner, signAndExecute } from '@/lib/signer'
 import { CLOCK, PKG, SUI_TYPE, resolveOwnerVault } from '@/lib/vault'
 import sevenk from '@7kprotocol/sdk-ts'
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
 import { Transaction } from '@mysten/sui/transactions'
 
 const isSui = (t: string) => t === SUI_TYPE || t.endsWith('::sui::SUI')
-const sui = new SuiClient({ url: getFullnodeUrl('mainnet') })
+const sui = webSuiClient()
 
 const enc = (tx: Transaction, s: string) => tx.pure.vector('u8', Array.from(new TextEncoder().encode(s)))
 
@@ -155,15 +155,34 @@ async function executeSwap(
 
 /** Execute `action` with the agent + vault that belong to `owner` (signed-in). */
 export async function executeAction(action: PendingAction, owner: string): Promise<ExecResult> {
+  let agent: string | undefined
   try {
     // The agent address comes from the signer (local-derived in dev, or a remote
     // KMS/MPC signer in prod) — the private key never appears in this module.
-    const agentAddr = await getAgentSigner().agentAddress(owner)
-    if (action.kind === 'transfer') return await executeTransfer(action, owner, agentAddr)
-    if (action.kind === 'swap') return await executeSwap(action, owner, agentAddr)
-    return { ok: false, error: 'unknown action' }
+    agent = await getAgentSigner().agentAddress(owner)
+    const res =
+      action.kind === 'transfer'
+        ? await executeTransfer(action, owner, agent)
+        : action.kind === 'swap'
+          ? await executeSwap(action, owner, agent)
+          : { ok: false, error: 'unknown action' }
+    logAction({
+      owner,
+      agent,
+      kind: action.kind,
+      amount: action.amount,
+      coin: action.kind === 'transfer' ? action.symbol : action.fromSymbol,
+      recipient: action.kind === 'transfer' ? action.recipient : undefined,
+      route: res.route,
+      ok: res.ok,
+      digest: res.digest,
+      error: res.error,
+    })
+    return res
   } catch (e) {
-    return { ok: false, error: (e as Error).message.slice(0, 200) }
+    const error = (e as Error).message.slice(0, 200)
+    logAction({ owner, agent, kind: action.kind, amount: action.amount, ok: false, error })
+    return { ok: false, error }
   }
 }
 

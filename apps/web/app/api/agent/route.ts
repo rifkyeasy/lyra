@@ -1,13 +1,13 @@
 import { deriveAgentAddress } from '@/lib/agent-derive'
 import { getSession } from '@/lib/auth/session'
 import { LYRA_PKG } from '@/lib/onchain-constants'
+import { webSuiClient } from '@/lib/ops'
 import { resolveOwnerVault } from '@/lib/vault'
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client'
 import { NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 
-const sui = new SuiClient({ url: getFullnodeUrl('mainnet') })
+const sui = webSuiClient()
 
 // The signed-in owner's agent (derived per owner) + their on-chain treasury vault
 // status. The UI shows the agent gas-float balance, whether they've provisioned a
