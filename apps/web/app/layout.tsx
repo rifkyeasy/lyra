@@ -46,6 +46,15 @@ const calSans = localFont({
   variable: '--font-cal-sans',
 })
 
+// Basik W05 Book — Lyra's display typeface (a clean geometric sans, replacing
+// Nebula's Fraunces serif for a distinct, modern identity).
+const basik = localFont({
+  src: '../public/fonts/Basik-Book.woff2',
+  weight: '400',
+  display: 'swap',
+  variable: '--font-basik',
+})
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://lyraai.space'),
   title: 'Lyra AI',
@@ -145,7 +154,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html
       lang="en"
-      className={`${themeClass} ${fraunces.variable} ${instrumentSerif.variable} ${outfit.variable} ${geistMono.variable} ${calSans.variable}`}
+      className={`${themeClass} ${basik.variable} ${fraunces.variable} ${instrumentSerif.variable} ${outfit.variable} ${geistMono.variable} ${calSans.variable}`}
       data-theme-ssr={cookieTheme || 'unset'}
       suppressHydrationWarning
     >
