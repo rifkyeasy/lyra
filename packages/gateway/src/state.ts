@@ -1,7 +1,7 @@
-import type { Address, Hex } from './operator-sig'
 import pkg from '../package.json' with { type: 'json' }
 import type { ApprovalRelay } from './approval-relay'
 import type { EventHub } from './events'
+import type { Address, Hex } from './operator-sig'
 import type { RuntimeAdapter, RuntimeConfig } from './runtime'
 
 // Derived from package.json so /healthz always reports the version that's

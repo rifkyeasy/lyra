@@ -54,7 +54,9 @@ describe('evaluatePolicy', () => {
   it('allows SUI by short or padded form against an allowlist', () => {
     const padded = `0x${'0'.repeat(63)}2::sui::SUI`
     expect(evaluatePolicy(send({ coinType: padded }), { coinAllowlist: [SUI] }).allowed).toBe(true)
-    expect(evaluatePolicy(send({ coinType: 'native' }), { coinAllowlist: [SUI] }).allowed).toBe(true)
+    expect(evaluatePolicy(send({ coinType: 'native' }), { coinAllowlist: [SUI] }).allowed).toBe(
+      true,
+    )
   })
 
   it('blocks a swap whose slippage exceeds the cap', () => {
@@ -97,7 +99,9 @@ describe('evaluatePolicy', () => {
 
   it('escalates to approval when a spend exceeds the auto ceiling', () => {
     const policy: SuiPolicy = { autonomy: 'auto', autoMaxMistPerTx: ONE_SUI / 10n }
-    expect(evaluatePolicy(send({ amountMist: ONE_SUI / 100n }), policy).requiresApproval).toBe(false)
+    expect(evaluatePolicy(send({ amountMist: ONE_SUI / 100n }), policy).requiresApproval).toBe(
+      false,
+    )
     expect(evaluatePolicy(send({ amountMist: ONE_SUI }), policy).requiresApproval).toBe(true)
   })
 })

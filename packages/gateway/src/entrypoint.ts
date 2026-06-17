@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { generateBootstrapKeypair } from 'lyra-core'
-import { type Address, normalizeAddress } from './operator-sig'
 import { ApprovalRelay } from './approval-relay'
 import { EventHub } from './events'
 import { startHeartbeat } from './heartbeat'
+import { type Address, normalizeAddress } from './operator-sig'
 import { RealRuntime } from './real-runtime'
 import { createGatewayServer } from './server'
 import { GATEWAY_VERSION, createSession, transitionToShuttingDown } from './state'

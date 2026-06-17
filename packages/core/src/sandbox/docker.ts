@@ -255,14 +255,7 @@ export class DockerBackend implements SandboxBackend {
       )
     }
 
-    const runArgs: string[] = [
-      'run',
-      '-d',
-      '--rm',
-      '--label',
-      'lyra-sandbox=1',
-      ...HARDENING_ARGS,
-    ]
+    const runArgs: string[] = ['run', '-d', '--rm', '--label', 'lyra-sandbox=1', ...HARDENING_ARGS]
     // Run as host UID so files created in a mounted workspace are owned by
     // the host user. Podman rootless on macOS handles this automatically; we
     // only force --user on docker/podman where the default would be root.

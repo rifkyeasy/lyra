@@ -63,7 +63,9 @@ export function makeDefiYields(_ctx: OnchainRuntimeContext): ToolDef<Args> {
               ilRisk: p.ilRisk,
               exposure: p.exposure,
               executable: adapter?.execute ?? false,
-              executeWith: adapter?.execute ? adapter.tools.find(t => /supply|stake|deposit/.test(t)) ?? adapter.tools[0] : null,
+              executeWith: adapter?.execute
+                ? (adapter.tools.find(t => /supply|stake|deposit/.test(t)) ?? adapter.tools[0])
+                : null,
             }
           })
         const executable = pools.filter(p => p.executable).length

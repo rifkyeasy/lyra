@@ -1,6 +1,9 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto'
 import { secp256k1 } from '@noble/curves/secp256k1.js'
-import { bytesToHex as nobleBytesToHex, hexToBytes as nobleHexToBytes } from '@noble/hashes/utils.js'
+import {
+  bytesToHex as nobleBytesToHex,
+  hexToBytes as nobleHexToBytes,
+} from '@noble/hashes/utils.js'
 
 /** `0x`-prefixed lowercase hex string. */
 type Hex = `0x${string}`

@@ -8,8 +8,8 @@ import {
   verifyChatSig,
   verifyProvisionSig,
 } from './auth'
-import { type Address, normalizeAddress } from './operator-sig'
 import type { EventHub, GatewayEvent, SubscriberKind } from './events'
+import { type Address, normalizeAddress } from './operator-sig'
 import type { RuntimeConfig } from './runtime'
 import { type GatewaySession, transitionToProvisioned, transitionToReady } from './state'
 

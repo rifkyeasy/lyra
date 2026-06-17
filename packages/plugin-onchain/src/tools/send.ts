@@ -85,10 +85,15 @@ export function makeSuiSend(ctx: OnchainRuntimeContext): ToolDef<Args> {
           options: { showEffects: true, showObjectChanges: true },
         })
         if (res.effects?.status?.status !== 'success') {
-          return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
+          return {
+            ok: false,
+            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
+          }
         }
         const receipt = res.objectChanges?.find(
-          c => c.type === 'created' && String((c as { objectType?: string }).objectType).endsWith('::policy::ActionReceipt'),
+          c =>
+            c.type === 'created' &&
+            String((c as { objectType?: string }).objectType).endsWith('::policy::ActionReceipt'),
         ) as { objectId?: string } | undefined
 
         return {

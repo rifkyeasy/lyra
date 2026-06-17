@@ -1,6 +1,6 @@
 import type { LyraNetwork } from 'lyra-core'
-import type { Address } from './operator-sig'
 import type { EventHub } from './events'
+import type { Address } from './operator-sig'
 
 /**
  * Lyra runtime config carried in the /bootstrap/provision payload. Subset of

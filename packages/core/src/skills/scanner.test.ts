@@ -51,10 +51,7 @@ describe('scanSkills', () => {
     const claudeSkillsRoot = join(scratch, '.claude', 'skills')
     const claudePluginsCacheRoot = join(scratch, '.claude', 'plugins', 'cache')
 
-    await plant(
-      join(lyraSkillsRoot, 'dogfood'),
-      '---\nname: dogfood\ndescription: lyra skill\n---',
-    )
+    await plant(join(lyraSkillsRoot, 'dogfood'), '---\nname: dogfood\ndescription: lyra skill\n---')
     await plant(
       join(claudeSkillsRoot, 'commit'),
       '---\nname: commit\ndescription: claude skill\n---',

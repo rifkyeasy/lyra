@@ -9,13 +9,7 @@
  * actually reach.
  */
 
-export type ProtocolCategory =
-  | 'clob'
-  | 'dex'
-  | 'aggregator'
-  | 'lending'
-  | 'staking'
-  | 'storage'
+export type ProtocolCategory = 'clob' | 'dex' | 'aggregator' | 'lending' | 'staking' | 'storage'
 
 export interface ProtocolCapability {
   id: string

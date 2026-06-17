@@ -11,8 +11,8 @@ import {
   HookBus,
   type Listener,
   LocalBackend,
-  McpManager,
   type LyraConfig,
+  McpManager,
   OpenAIBrain,
   type PermissionDecision,
   type PermissionMode,
@@ -48,11 +48,7 @@ import {
   runEscalation,
   scanSkills,
 } from 'lyra-core'
-import {
-  ONCHAIN_GUIDANCE,
-  policyFromEnv,
-  policyRequiresApprovalForCall,
-} from 'lyra-plugin-onchain'
+import { ONCHAIN_GUIDANCE, policyFromEnv, policyRequiresApprovalForCall } from 'lyra-plugin-onchain'
 import {
   TELEGRAM_GUIDANCE,
   type TelegramApprovalBridge,
@@ -276,11 +272,13 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
   }
   // Standalone Sui client for the statusbar balance refresher, so the segment
   // works regardless of which plugins loaded.
-  const balanceClient = onchain?.client ?? buildOnchainContext({
-    agent,
-    network: config.network,
-    agentDir: paths.dir,
-  }).client
+  const balanceClient =
+    onchain?.client ??
+    buildOnchainContext({
+      agent,
+      network: config.network,
+      agentDir: paths.dir,
+    }).client
   // Phase 12: telegram side-band ctx. We build the runtime context now (before
   // brain.init) so the plugin can register its listener via ctx.registerListener,
   // but the dispatch callback is deferred — the slot's `.current` is null until
@@ -1086,10 +1084,7 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
   })
 }
 
-async function runModelPicker(
-  config: LyraConfig,
-  configPath: string,
-): Promise<LyraConfig | null> {
+async function runModelPicker(config: LyraConfig, configPath: string): Promise<LyraConfig | null> {
   // Lyra uses a fixed OpenAI-compatible model (env-configured); no live catalog.
   const model = process.env.LYRA_LLM_MODEL ?? config.brain?.model ?? 'gpt-4o-mini'
   const updated: LyraConfig = {

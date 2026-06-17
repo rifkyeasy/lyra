@@ -1,9 +1,4 @@
-import type {
-  PermissionDecision,
-  PermissionMode,
-  PermissionRequest,
-  SlashCommand,
-} from 'lyra-core'
+import type { PermissionDecision, PermissionMode, PermissionRequest, SlashCommand } from 'lyra-core'
 import { createSignal } from 'solid-js'
 
 export type TurnRole =

@@ -371,9 +371,7 @@ describe('buildBwrapArgs (Linux profile)', () => {
       homedir: '/h',
       extraWriteAllow: ['/tmp/lyra-test-sandbox-XYZ'],
     })
-    expect(args.join(' ')).toContain(
-      '--bind /tmp/lyra-test-sandbox-XYZ /tmp/lyra-test-sandbox-XYZ',
-    )
+    expect(args.join(' ')).toContain('--bind /tmp/lyra-test-sandbox-XYZ /tmp/lyra-test-sandbox-XYZ')
   })
 
   test('respects extraWriteDeny via tmpfs', () => {

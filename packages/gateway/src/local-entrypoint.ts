@@ -98,8 +98,7 @@ async function buildLocalConfig(agentAddress: string): Promise<RuntimeConfig> {
     network: (fileConfig.network as RuntimeConfig['network']) ?? network,
     brain: {
       provider: fileConfig.brain?.provider ?? process.env.LYRA_LLM_PROVIDER ?? 'openai',
-      model:
-        fileConfig.brain?.model ?? process.env.LYRA_LLM_MODEL ?? 'gpt-4o-mini',
+      model: fileConfig.brain?.model ?? process.env.LYRA_LLM_MODEL ?? 'gpt-4o-mini',
       ...fileConfig.brain,
     },
     identity: {

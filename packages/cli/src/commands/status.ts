@@ -70,7 +70,8 @@ function summarizePolicy(policy: SuiPolicy): string {
   const parts: string[] = []
   const autonomy = policy.autonomy ?? (policy.readOnly ? 'readonly' : 'auto')
   parts.push(`autonomy=${autonomy}`)
-  if (policy.maxMistPerTx !== undefined) parts.push(`maxPerTx=${formatSui(policy.maxMistPerTx)} SUI`)
+  if (policy.maxMistPerTx !== undefined)
+    parts.push(`maxPerTx=${formatSui(policy.maxMistPerTx)} SUI`)
   if (policy.autoMaxMistPerTx !== undefined)
     parts.push(`autoMax=${formatSui(policy.autoMaxMistPerTx)} SUI`)
   if (policy.maxSlippageBps !== undefined) parts.push(`slippage=${policy.maxSlippageBps}bps`)

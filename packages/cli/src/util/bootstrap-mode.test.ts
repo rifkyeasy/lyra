@@ -20,12 +20,12 @@ describe('resolveBootstrapMode', () => {
   })
 
   it('lets explicit MODE win over REF (e.g. NPM=v0.21.20 alongside REF=ignored)', () => {
-    expect(
-      resolveBootstrapMode({ LYRA_BOOTSTRAP_MODE: 'npm', LYRA_BOOTSTRAP_REF: 'main' }),
-    ).toBe('npm')
-    expect(
-      resolveBootstrapMode({ LYRA_BOOTSTRAP_MODE: 'git', LYRA_BOOTSTRAP_REF: 'main' }),
-    ).toBe('git')
+    expect(resolveBootstrapMode({ LYRA_BOOTSTRAP_MODE: 'npm', LYRA_BOOTSTRAP_REF: 'main' })).toBe(
+      'npm',
+    )
+    expect(resolveBootstrapMode({ LYRA_BOOTSTRAP_MODE: 'git', LYRA_BOOTSTRAP_REF: 'main' })).toBe(
+      'git',
+    )
   })
 
   it('falls through to npm on garbage LYRA_BOOTSTRAP_MODE (typos, uppercase, etc.)', () => {

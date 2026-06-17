@@ -94,9 +94,7 @@ describe('stripMarkdownV2', () => {
 
 describe('formatMarkdownV2', () => {
   it('passes through plain text but escapes reserved chars', () => {
-    expect(formatMarkdownV2('your balance is 0.0819 Sui.')).toBe(
-      'your balance is 0\\.0819 Sui\\.',
-    )
+    expect(formatMarkdownV2('your balance is 0.0819 Sui.')).toBe('your balance is 0\\.0819 Sui\\.')
   })
 
   it('translates **bold** into MarkdownV2 *bold*', () => {
@@ -108,9 +106,7 @@ describe('formatMarkdownV2', () => {
   })
 
   it('keeps ** bold-with-inner-text translated', () => {
-    expect(formatMarkdownV2('**Your balance**: 0.0819 Sui')).toBe(
-      '*Your balance*: 0\\.0819 Sui',
-    )
+    expect(formatMarkdownV2('**Your balance**: 0.0819 Sui')).toBe('*Your balance*: 0\\.0819 Sui')
   })
 
   it('translates headers into bold', () => {

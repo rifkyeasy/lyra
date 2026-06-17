@@ -11,8 +11,8 @@ import {
   chatMessageDigest,
   provisionMessageDigest,
 } from './auth'
-import type { Address } from './operator-sig'
 import { EventHub } from './events'
+import type { Address } from './operator-sig'
 import type { RuntimeAdapter, RuntimeConfig } from './runtime'
 import { createGatewayServer } from './server'
 import { type GatewaySession, createSession } from './state'
@@ -289,7 +289,10 @@ describe('harness HTTP server — chat + sync', () => {
   test('POST /chat with operator-signed message → echoes', async () => {
     const ts = Date.now()
     const message = 'hello enigma'
-    const sig = await signDigest(fix.operator, chatMessageDigest(message, ts, fix.session.sandboxId))
+    const sig = await signDigest(
+      fix.operator,
+      chatMessageDigest(message, ts, fix.session.sandboxId),
+    )
     const r = await fetch(`${fix.base}/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

@@ -12,7 +12,10 @@ import type { OnchainRuntimeContext } from '../types'
 const DEFAULT_POOLS = ['SUI_USDC', 'DEEP_USDC', 'DEEP_SUI', 'WAL_USDC', 'WAL_SUI']
 
 const Schema = z.object({
-  pools: z.string().optional().describe('Comma-separated pool keys (e.g. "SUI_USDC,DEEP_USDC"). Omit for the core set.'),
+  pools: z
+    .string()
+    .optional()
+    .describe('Comma-separated pool keys (e.g. "SUI_USDC,DEEP_USDC"). Omit for the core set.'),
 })
 type Args = z.infer<typeof Schema>
 
@@ -33,7 +36,10 @@ export function makeDeepbookMarkets(ctx: OnchainRuntimeContext): ToolDef<Args> {
           env: ctx.network,
         })
         const keys = args.pools
-          ? args.pools.split(',').map(s => s.trim()).filter(Boolean)
+          ? args.pools
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean)
           : DEFAULT_POOLS
         const markets = await Promise.all(
           keys.map(async pool => {

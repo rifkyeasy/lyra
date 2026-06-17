@@ -18,7 +18,6 @@
  */
 
 import type { NativePlugin, ToolDef } from 'lyra-core'
-import type { OnchainRuntimeContext } from './types'
 import { makeAccountInfo, makeSuiBalance } from './tools/balance'
 import { makeCetusQuote } from './tools/cetus'
 import { makeDeepbookMarkets } from './tools/deepbook'
@@ -34,6 +33,7 @@ import {
 } from './tools/scallop'
 import { makeSuiSend } from './tools/send'
 import { makeWalrusStore } from './tools/walrus'
+import type { OnchainRuntimeContext } from './types'
 
 export {
   makeSuiClient,

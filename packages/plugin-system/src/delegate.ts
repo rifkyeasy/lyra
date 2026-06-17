@@ -1,9 +1,4 @@
-import {
-  type ClaudeAgent,
-  type DelegateBrainFactory,
-  type ToolDef,
-  coerceInt,
-} from 'lyra-core'
+import { type ClaudeAgent, type DelegateBrainFactory, type ToolDef, coerceInt } from 'lyra-core'
 import { z } from 'zod'
 
 /**

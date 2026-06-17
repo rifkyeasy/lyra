@@ -14,7 +14,8 @@ export function makeProtocolsList(_ctx: OnchainRuntimeContext): ToolDef<Record<s
     name: 'protocols.list',
     description:
       "Lyra's integrated protocols and what it can do with each: read-only vs executable, by category (lending, DEX, staking, storage, CLOB). Call this to answer 'what can you do', 'which protocols do you support', or before telling a user whether an action is possible. Discovery (defi.yields) spans ALL Sui protocols; execution is bounded to this list.",
-    searchHint: 'protocols supported integrations capabilities what can you do execute adapters list',
+    searchHint:
+      'protocols supported integrations capabilities what can you do execute adapters list',
     schema: z.object({}),
     handler: async () => ({
       ok: true,

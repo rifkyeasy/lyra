@@ -13,7 +13,11 @@ export class StubRuntime implements RuntimeAdapter {
   #config: RuntimeConfig | null = null
   #events: EventHub | null = null
 
-  async start(opts: { agentSecret: string; config: RuntimeConfig; events: EventHub }): Promise<void> {
+  async start(opts: {
+    agentSecret: string
+    config: RuntimeConfig
+    events: EventHub
+  }): Promise<void> {
     this.#config = opts.config
     this.#events = opts.events
     this.#events.publish('state-change', { state: 'starting' })

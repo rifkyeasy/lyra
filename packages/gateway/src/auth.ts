@@ -1,8 +1,8 @@
 import { verifyPersonalMessageSignature } from '@mysten/sui/verify'
 import {
   type Address,
-  type Hex,
   type DigestField,
+  type Hex,
   digestFields,
   isAddressEqual,
 } from './operator-sig'

@@ -37,7 +37,7 @@ export async function runTelegramStatus(): Promise<void> {
 
   log.info(
     [
-      `source           env (TELEGRAM_BOT_TOKEN)`,
+      'source           env (TELEGRAM_BOT_TOKEN)',
       `bot username     @${secrets.botUsername ?? '(set TELEGRAM_USERNAME)'}`,
       `allowed user ids ${secrets.allowedUserIds.length === 0 ? '(open access)' : secrets.allowedUserIds.join(', ')}`,
       `plugin enabled   ${(config.plugins ?? []).includes('telegram') ? 'yes' : 'no — add `telegram` to plugins'}`,

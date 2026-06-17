@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { cancel, intro, isCancel, note, outro, select } from '@clack/prompts'
+import { cancel, intro, isCancel, outro, select } from '@clack/prompts'
 import {
   type LyraNetwork,
   agentPaths,
@@ -141,7 +141,8 @@ async function seedStarterMemoryFiles(opts: SeedStarterOpts): Promise<void> {
 
   const now = new Date().toISOString().slice(0, 10)
   const identity = `---\nname: identity\ndescription: Auto-written agent identity facts.\ntype: agent-identity\n---\n# Lyra identity\n\n- Name: Lyra\n- Agent address: ${opts.agentAddress} (${opts.network})\n- Created: ${now}\n${opts.brainProvider ? `- Brain provider: ${opts.brainProvider}\n` : ''}${opts.brainModel ? `- Brain model: ${opts.brainModel}\n` : ''}`
-  const persona = `---\nname: persona\ndescription: Voice + behavior style.\ntype: agent-persona\n---\n# Persona\n\nI am Lyra, a Sui-native autonomous finance agent. I convert goals into policy-checked PTBs, execute only within my approved protocol scope, and store auditable memory and receipts with Walrus. Every value-moving action is checked by a deterministic policy (mirrored on-chain by lyra::policy) before it runs. I am direct, concise, and factual.\n`
+  const persona =
+    '---\nname: persona\ndescription: Voice + behavior style.\ntype: agent-persona\n---\n# Persona\n\nI am Lyra, a Sui-native autonomous finance agent. I convert goals into policy-checked PTBs, execute only within my approved protocol scope, and store auditable memory and receipts with Walrus. Every value-moving action is checked by a deterministic policy (mirrored on-chain by lyra::policy) before it runs. I am direct, concise, and factual.\n'
   const profile =
     '---\nname: profile\ndescription: User profile (local only).\ntype: user\n---\n# User profile\n\n(empty, fills as we chat)\n'
 

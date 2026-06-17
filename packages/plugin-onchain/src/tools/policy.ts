@@ -26,7 +26,8 @@ export function makePolicyShow(ctx: OnchainRuntimeContext): ToolDef<ShowArgs> {
     name: 'policy.show',
     description:
       'Show the active deterministic fund-control policy: per-tx cap, auto-approve ceiling, autonomy tier, coin/protocol allowlists, slippage cap, and expiry. Read-only. Call for "what are my limits", "what can you spend", or before explaining why an action was blocked.',
-    searchHint: 'policy limits caps allowlist autonomy approval guardrails rules what can you spend',
+    searchHint:
+      'policy limits caps allowlist autonomy approval guardrails rules what can you spend',
     schema: ShowSchema,
     handler: async () => {
       const p = ctx.policy
@@ -47,11 +48,16 @@ export function makePolicyShow(ctx: OnchainRuntimeContext): ToolDef<ShowArgs> {
       if (readOnly) lines.push('READ-ONLY: all writes are blocked.')
       if (maxPerTx) lines.push(`Hard cap: sends over ${maxPerTx} are blocked.`)
       if (autoUpTo) lines.push(`Auto-execute up to ${autoUpTo}; above that requires approval.`)
-      if (p.maxSlippageBps !== undefined) lines.push(`Swaps over ${p.maxSlippageBps} bps slippage are blocked.`)
-      if (p.coinAllowlist?.length) lines.push(`Only ${p.coinAllowlist.length} allowlisted coin type(s) may be moved.`)
-      if (p.protocolAllowlist?.length) lines.push(`Only protocols: ${p.protocolAllowlist.join(', ')}.`)
-      if (p.recipientAllowlist?.length) lines.push(`Transfers only to ${p.recipientAllowlist.length} allowlisted recipient(s).`)
-      if (p.expiryMs !== undefined) lines.push(`Policy expires ${new Date(p.expiryMs).toISOString()}.`)
+      if (p.maxSlippageBps !== undefined)
+        lines.push(`Swaps over ${p.maxSlippageBps} bps slippage are blocked.`)
+      if (p.coinAllowlist?.length)
+        lines.push(`Only ${p.coinAllowlist.length} allowlisted coin type(s) may be moved.`)
+      if (p.protocolAllowlist?.length)
+        lines.push(`Only protocols: ${p.protocolAllowlist.join(', ')}.`)
+      if (p.recipientAllowlist?.length)
+        lines.push(`Transfers only to ${p.recipientAllowlist.length} allowlisted recipient(s).`)
+      if (p.expiryMs !== undefined)
+        lines.push(`Policy expires ${new Date(p.expiryMs).toISOString()}.`)
       if (p.autonomy === 'confirm') lines.push('Autonomy=confirm: every write needs approval.')
 
       return {
@@ -69,7 +75,8 @@ export function makePolicyShow(ctx: OnchainRuntimeContext): ToolDef<ShowArgs> {
           expiry: p.expiryMs ? new Date(p.expiryMs).toISOString() : null,
           policyPackage: ctx.packageId ?? null,
           policyObject: ctx.policyObjectId ?? null,
-          summary: lines.length > 0 ? lines.join(' ') : 'Policy armed but with no specific caps set.',
+          summary:
+            lines.length > 0 ? lines.join(' ') : 'Policy armed but with no specific caps set.',
         },
       }
     },
@@ -81,8 +88,18 @@ export function makePolicyShow(ctx: OnchainRuntimeContext): ToolDef<ShowArgs> {
 const CreateSchema = z.object({
   budgetSui: z.string().min(1).describe('Lifetime spend ceiling in SUI, e.g. "10".'),
   maxPerTxSui: z.string().min(1).describe('Hard per-action cap in SUI, e.g. "1".'),
-  maxSlippageBps: z.number().int().min(0).optional().describe('Reference slippage cap (bps). Default 100.'),
-  expiryMinutes: z.number().int().min(0).optional().describe('Minutes until the policy expires. 0 / omit = never.'),
+  maxSlippageBps: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe('Reference slippage cap (bps). Default 100.'),
+  expiryMinutes: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe('Minutes until the policy expires. 0 / omit = never.'),
 })
 type CreateArgs = z.infer<typeof CreateSchema>
 
@@ -95,7 +112,8 @@ export function makePolicyCreate(ctx: OnchainRuntimeContext): ToolDef<CreateArgs
     schema: CreateSchema,
     handler: async args => {
       try {
-        if (!ctx.packageId) return { ok: false, error: 'no lyra::policy package configured (LYRA_PACKAGE_ID)' }
+        if (!ctx.packageId)
+          return { ok: false, error: 'no lyra::policy package configured (LYRA_PACKAGE_ID)' }
         const budget = suiToMist(args.budgetSui)
         const maxPerTx = suiToMist(args.maxPerTxSui)
         if (budget === undefined || maxPerTx === undefined) {
@@ -124,7 +142,10 @@ export function makePolicyCreate(ctx: OnchainRuntimeContext): ToolDef<CreateArgs
           options: { showEffects: true, showObjectChanges: true },
         })
         if (res.effects?.status?.status !== 'success') {
-          return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
+          return {
+            ok: false,
+            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
+          }
         }
         // Wait for indexing so the new shared policy object is queryable before
         // the next action references it (avoids a notExists race on sui.send).
@@ -134,7 +155,9 @@ export function makePolicyCreate(ctx: OnchainRuntimeContext): ToolDef<CreateArgs
           objectType?: string
         }[]
         const policyObj = created.find(c => String(c.objectType).endsWith('::policy::AgentPolicy'))
-        const ownerCap = created.find(c => String(c.objectType).endsWith('::policy::PolicyOwnerCap'))
+        const ownerCap = created.find(c =>
+          String(c.objectType).endsWith('::policy::PolicyOwnerCap'),
+        )
         // Wire subsequent writes to record against this policy on-chain.
         if (policyObj) ctx.policyObjectId = policyObj.objectId
 

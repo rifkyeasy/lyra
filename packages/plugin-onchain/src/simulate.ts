@@ -23,7 +23,11 @@ export interface SimFail {
 export type SimResult = SimOk | SimFail
 
 /** Net gas = computation + storage − rebate, as a MIST string. */
-function netGas(gas: { computationCost: string; storageCost: string; storageRebate: string }): string {
+function netGas(gas: {
+  computationCost: string
+  storageCost: string
+  storageRebate: string
+}): string {
   return (
     BigInt(gas.computationCost) +
     BigInt(gas.storageCost) -

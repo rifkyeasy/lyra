@@ -58,8 +58,7 @@ export interface BuildOnchainOpts {
  */
 export function buildOnchainContext(opts: BuildOnchainOpts): OnchainRuntimeContext {
   const packageId = opts.packageId ?? process.env.LYRA_PACKAGE_ID ?? undefined
-  const policyObjectId =
-    opts.policyObjectId ?? process.env.LYRA_POLICY_OBJECT_ID ?? undefined
+  const policyObjectId = opts.policyObjectId ?? process.env.LYRA_POLICY_OBJECT_ID ?? undefined
   return {
     client: makeSuiClient(opts.network),
     keypair: opts.agent.keypair,

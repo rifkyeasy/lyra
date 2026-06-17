@@ -36,7 +36,9 @@ export async function runGatewayStart(opts: GatewayStartOpts): Promise<void> {
   const agent = loadAgentFromEnv()
   const agentAddress = agent?.address ?? config.identity.agent
   if (!agentAddress) {
-    console.error('lyra gateway start: no LYRA_AGENT_KEY set and no agent in config. Run `lyra init`.')
+    console.error(
+      'lyra gateway start: no LYRA_AGENT_KEY set and no agent in config. Run `lyra init`.',
+    )
     process.exit(1)
   }
   const agentId = opts.agentId ?? placeholderAgentId(agentAddress)

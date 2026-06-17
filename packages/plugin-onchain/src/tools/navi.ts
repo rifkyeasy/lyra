@@ -39,7 +39,14 @@ export function makeNaviMarkets(ctx: OnchainRuntimeContext): ToolDef<Record<stri
         const info = (await c.getPoolInfo()) as Record<string, unknown>
         const pools = Object.values(info)
           .map(p => {
-            const r = p as { coinType?: string; symbol?: string; supplyIncentiveApyInfo?: { apy?: number }; borrowIncentiveApyInfo?: { apy?: number }; base_supply_rate?: number; base_borrow_rate?: number }
+            const r = p as {
+              coinType?: string
+              symbol?: string
+              supplyIncentiveApyInfo?: { apy?: number }
+              borrowIncentiveApyInfo?: { apy?: number }
+              base_supply_rate?: number
+              base_borrow_rate?: number
+            }
             return {
               symbol: r.symbol ?? r.coinType,
               supplyApy: r.base_supply_rate ?? r.supplyIncentiveApyInfo?.apy ?? null,
@@ -73,7 +80,9 @@ export function makeNaviPosition(ctx: OnchainRuntimeContext): ToolDef<Record<str
         const [health, portfolios] = await Promise.all([
           c.getHealthFactor(ctx.agentAddress).catch(() => null),
           // .d.ts declares 0 args but it accepts an address at runtime.
-          (c as { getAllNaviPortfolios(a: string): Promise<unknown> }).getAllNaviPortfolios(ctx.agentAddress).catch(() => null),
+          (c as { getAllNaviPortfolios(a: string): Promise<unknown> })
+            .getAllNaviPortfolios(ctx.agentAddress)
+            .catch(() => null),
         ])
         return {
           ok: true,
@@ -103,14 +112,16 @@ async function runNaviWrite(
   const err = ensureMainnet(ctx)
   if (err) return { ok: false, error: err }
   const amountMist = suiToMist(amount)
-  if (amountMist === undefined || amountMist <= 0n) return { ok: false, error: `invalid amount "${amount}"` }
+  if (amountMist === undefined || amountMist <= 0n)
+    return { ok: false, error: `invalid amount "${amount}"` }
 
   if (ctx.policy && kind === 'supply') {
     const verdict = evaluatePolicy(
       { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'navi' },
       ctx.policy,
     )
-    if (!verdict.allowed) return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
+    if (!verdict.allowed)
+      return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
   }
 
   try {
@@ -137,7 +148,14 @@ async function runNaviWrite(
     }
     return {
       ok: true,
-      data: { protocol: 'navi', action: kind, amountSui: amount, digest: res.digest, simGasUsed: sim.gasUsed, policyEnforced: ctx.policy != null },
+      data: {
+        protocol: 'navi',
+        action: kind,
+        amountSui: amount,
+        digest: res.digest,
+        simGasUsed: sim.gasUsed,
+        policyEnforced: ctx.policy != null,
+      },
     }
   } catch (e) {
     return { ok: false, error: (e as Error).message.slice(0, 240) }
@@ -147,7 +165,8 @@ async function runNaviWrite(
 export function makeNaviSupply(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
   return {
     name: 'navi.supply',
-    description: 'Supply (deposit) idle SUI into NAVI to earn lending yield. Policy-checked, simulated, then executed.',
+    description:
+      'Supply (deposit) idle SUI into NAVI to earn lending yield. Policy-checked, simulated, then executed.',
     searchHint: 'navi supply deposit lend sui earn yield idle',
     schema: AmountSchema,
     handler: async args => runNaviWrite(ctx, args.amount, 'supply'),

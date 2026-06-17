@@ -42,9 +42,7 @@ const TAG_LEN = 16
  */
 export function deriveMemoryKey(agentSecret: string | Uint8Array): Buffer {
   const ikm =
-    typeof agentSecret === 'string'
-      ? Buffer.from(agentSecret, 'utf8')
-      : Buffer.from(agentSecret)
+    typeof agentSecret === 'string' ? Buffer.from(agentSecret, 'utf8') : Buffer.from(agentSecret)
   return Buffer.from(hkdfSync('sha256', ikm, Buffer.alloc(0), HKDF_INFO, KEY_LEN))
 }
 

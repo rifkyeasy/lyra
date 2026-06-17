@@ -13,17 +13,7 @@
   "bugs": {
     "url": "https://github.com/rifkyeasy/lyra/issues"
   },
-  "keywords": [
-    "lyra",
-    "ai",
-    "agent",
-    "sui",
-    "defi",
-    "deepbook",
-    "walrus",
-    "policy",
-    "plugin"
-  ],
+  "keywords": ["lyra", "ai", "agent", "sui", "defi", "deepbook", "walrus", "policy", "plugin"],
   "publishConfig": {
     "access": "public"
   },

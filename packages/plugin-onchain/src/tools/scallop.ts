@@ -29,7 +29,10 @@ async function newScallop(ctx: OnchainRuntimeContext): Promise<Scallop> {
 // --- scallop.markets -------------------------------------------------------
 
 const MarketsSchema = z.object({
-  coins: z.string().optional().describe('Comma-separated coin names, e.g. "sui,usdc,usdt". Default sui,usdc,usdt.'),
+  coins: z
+    .string()
+    .optional()
+    .describe('Comma-separated coin names, e.g. "sui,usdc,usdt". Default sui,usdc,usdt.'),
 })
 type MarketsArgs = z.infer<typeof MarketsSchema>
 
@@ -47,7 +50,10 @@ export function makeScallopMarkets(ctx: OnchainRuntimeContext): ToolDef<MarketsA
         const sdk = await newScallop(ctx)
         const q = await sdk.createScallopQuery()
         await q.init()
-        const coins = (args.coins?.split(',').map(s => s.trim()).filter(Boolean) ?? ['sui', 'usdc', 'usdt'])
+        const coins = args.coins
+          ?.split(',')
+          .map(s => s.trim())
+          .filter(Boolean) ?? ['sui', 'usdc', 'usdt']
         const pools = await Promise.all(
           coins.map(async coin => {
             try {
@@ -98,11 +104,13 @@ export function makeScallopPosition(ctx: OnchainRuntimeContext): ToolDef<Positio
             totalSupplyValue: p?.totalSupplyValue ?? 0,
             totalCollateralValue: p?.totalCollateralValue ?? 0,
             totalDebtValue: p?.totalDebtValue ?? 0,
-            lendings: (p?.lendings ?? []).map((l: { coinName?: string; suppliedCoin?: number; suppliedValue?: number }) => ({
-              coin: l.coinName,
-              supplied: l.suppliedCoin,
-              value: l.suppliedValue,
-            })),
+            lendings: (p?.lendings ?? []).map(
+              (l: { coinName?: string; suppliedCoin?: number; suppliedValue?: number }) => ({
+                coin: l.coinName,
+                supplied: l.suppliedCoin,
+                value: l.suppliedValue,
+              }),
+            ),
             borrowings: p?.borrowings ?? [],
           },
         }
@@ -128,7 +136,8 @@ async function runScallopWrite(
   const err = ensureMainnet(ctx)
   if (err) return { ok: false, error: err }
   const amountMist = suiToMist(amount)
-  if (amountMist === undefined || amountMist <= 0n) return { ok: false, error: `invalid amount "${amount}"` }
+  if (amountMist === undefined || amountMist <= 0n)
+    return { ok: false, error: `invalid amount "${amount}"` }
 
   // Policy gate (deterministic). Supplying moves funds out; withdrawing back in.
   if (ctx.policy && kind === 'supply') {
@@ -136,7 +145,8 @@ async function runScallopWrite(
       { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'scallop' },
       ctx.policy,
     )
-    if (!verdict.allowed) return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
+    if (!verdict.allowed)
+      return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
   }
 
   try {

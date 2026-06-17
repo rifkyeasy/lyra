@@ -127,7 +127,9 @@ export async function runDemo(opts: DemoOpts = {}): Promise<void> {
     console.log('3-5) write path (policy.create → sui.send → walrus.store)')
     console.log('   dry run. Re-run `lyra demo --yes` to execute the on-chain steps:')
     console.log('     • policy.create — publish a shared lyra::policy AgentPolicy')
-    console.log('     • sui.send      — a small in-cap transfer to self (policy + simulate + execute)')
+    console.log(
+      '     • sui.send      — a small in-cap transfer to self (policy + simulate + execute)',
+    )
     console.log('     • walrus.store  — store the run receipt durably on Walrus')
     return
   }

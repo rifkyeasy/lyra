@@ -14,7 +14,13 @@ import type { OnchainRuntimeContext } from '../types'
 
 const Schema = z.object({
   content: z.string().min(1).describe('The text/JSON artifact to store durably.'),
-  epochs: z.number().int().min(1).max(53).optional().describe('Storage duration in Walrus epochs. Default 3.'),
+  epochs: z
+    .number()
+    .int()
+    .min(1)
+    .max(53)
+    .optional()
+    .describe('Storage duration in Walrus epochs. Default 3.'),
 })
 type Args = z.infer<typeof Schema>
 
