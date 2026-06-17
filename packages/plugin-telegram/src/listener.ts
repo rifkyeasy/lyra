@@ -5,6 +5,7 @@ import { buildTelegramCommands } from './commands'
 import { DebounceBuffer, type FlushedBatch } from './debounce'
 import { formatTelegramChannel } from './format'
 import { RateLimiter } from './limits'
+import { type OwnerLinkStore, completeLink, startLink } from './link'
 import { formatMarkdownV2, isMarkdownParseError, stripMarkdownV2 } from './markdown'
 import { formatPairingMessage } from './pairing-flow'
 import { ProgressTracker } from './progress'
@@ -82,6 +83,15 @@ export interface TelegramListenerOpts extends TelegramRuntimeContext {
   debounceMs?: number
   /** Optional override of the locks dir (test only). */
   lockRootDir?: string
+  /**
+   * Optional Telegram↔owner-wallet link store. When present, `/link` + `/verify`
+   * let a user prove wallet ownership (Sign-In-with-Sui style) and bind their
+   * Telegram account to their Lyra owner address. Unset → linking is disabled
+   * and these commands fall through to normal dispatch (no behaviour change).
+   */
+  linkStore?: OwnerLinkStore
+  /** Optional resolver: owner address → their derived agent address (for display). */
+  resolveAgentAddress?: (owner: string) => string | null
 }
 
 export class TelegramListener {
@@ -394,9 +404,63 @@ export class TelegramListener {
    * Handle one inbound TG update. Sanitize → rate-limit → debounce.
    * Errors here are swallowed (logged) so grammy stays alive.
    */
+  /**
+   * Handle the Telegram↔owner-wallet link commands. Returns true when the message
+   * was a link command (and was handled), false to fall through to dispatch.
+   *   /link            → issue a challenge to sign with your Sui wallet
+   *   /verify <sig>    → bind the recovered owner to this Telegram account
+   *   /whoami          → show the linked owner + their agent
+   */
+  private async maybeHandleLink(ctx: Context, userId: number, text: string): Promise<boolean> {
+    const store = this.opts.linkStore as OwnerLinkStore
+    const reply = (t: string) => ctx.reply(t).catch(() => {})
+
+    if (text === '/link') {
+      const challenge = await startLink(store, userId)
+      await reply(
+        `Link your wallet: sign this message with your Sui wallet, then send\n/verify <signature>\n\n— message to sign —\n${challenge}`,
+      )
+      return true
+    }
+    if (text.startsWith('/verify')) {
+      const sig = text.slice('/verify'.length).trim()
+      if (!sig) {
+        await reply('Usage: /verify <signature>. Send /link first to get the message to sign.')
+        return true
+      }
+      const owner = await completeLink(store, userId, sig)
+      if (!owner) {
+        await reply('Could not verify that signature — run /link again and sign the exact message.')
+        return true
+      }
+      const agent = this.opts.resolveAgentAddress?.(owner) ?? null
+      await reply(
+        `✓ Linked to owner ${owner.slice(0, 10)}…${owner.slice(-6)}${agent ? `\nYour agent: ${agent.slice(0, 12)}…` : ''}`,
+      )
+      return true
+    }
+    if (text === '/whoami') {
+      const owner = await store.getOwner(userId)
+      if (!owner) {
+        await reply('Not linked yet. Send /link to bind your Sui wallet.')
+        return true
+      }
+      const agent = this.opts.resolveAgentAddress?.(owner) ?? null
+      await reply(`owner ${owner.slice(0, 10)}…${owner.slice(-6)}\nagent ${agent ? `${agent.slice(0, 12)}…` : '(not resolved)'}`)
+      return true
+    }
+    return false
+  }
+
   private async onMessage(ctx: Context): Promise<void> {
     const msg = ctx.message
     if (!msg) return
+    // Wallet linking is self-serve (handled before the allowedUserIds gate so a
+    // new owner can prove ownership). Only active when a link store is wired.
+    if (this.opts.linkStore && msg.from?.id && typeof msg.text === 'string') {
+      const handled = await this.maybeHandleLink(ctx, msg.from.id, msg.text.trim())
+      if (handled) return
+    }
     const sanitized = sanitizeInbound(
       {
         chatType: msg.chat.type,
