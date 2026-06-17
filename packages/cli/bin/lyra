@@ -1,6 +1,11 @@
 #!/usr/bin/env bun
-// Register @opentui/solid's JSX transform before any .tsx loads. bunfig's
-// `preload` only fires when bun finds bunfig.toml in the cwd chain; importing
-// it here makes `lyra` work when installed as a global npm bin too.
+// Register the @opentui/solid JSX transform plugin BEFORE any .tsx file
+// loads. bunfig.toml's `preload` only fires when bun discovers bunfig.toml
+// in the cwd lookup chain — running `lyra` from outside the repo (e.g.
+// `cd ~ && lyra`, or as an installed npm bin) skips it entirely, leaving
+// JSX compiled as React.createElement and the chat TUI rendering blank.
+// Importing the preload module here registers the plugin regardless of
+// cwd. The plugin is idempotent so this is a no-op if bunfig.toml ALSO
+// loaded it.
 import '@opentui/solid/preload'
-import '../src/cli'
+import '../src/index'

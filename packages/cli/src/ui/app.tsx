@@ -1,5 +1,5 @@
 import { useKeyboard, usePaste, useTerminalDimensions } from '@opentui/solid'
-import { type SlashCommand, suggestForPrefix } from '../compat'
+import { type SlashCommand, suggestForPrefix } from 'lyra-core'
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
 import { summarizeApprovalSubject } from './approval-summary'
 import { MarkdownSegments } from './markdown'
@@ -60,9 +60,9 @@ function formatUsage(usage: { total?: number; cached?: number } | null | undefin
 
 function formatBalance(balance: number | null | undefined): string {
   if (balance == null) return ''
-  if (balance >= 100) return `${balance.toFixed(0)} Mantle`
-  if (balance >= 1) return `${balance.toFixed(2)} Mantle`
-  return `${balance.toFixed(3)} Mantle`
+  if (balance >= 100) return `${balance.toFixed(0)} SUI`
+  if (balance >= 1) return `${balance.toFixed(2)} SUI`
+  return `${balance.toFixed(3)} SUI`
 }
 
 function balanceColor(
@@ -167,7 +167,7 @@ function AssistantTextRow(props: { text: string; firstOfBlock: boolean }) {
   return (
     <box flexDirection="row" marginTop={props.firstOfBlock ? 0 : 1} marginBottom={1}>
       <text fg="#86efac" flexShrink={0}>
-        {props.firstOfBlock ? renderPrefix('nebula') : BODY_INDENT}
+        {props.firstOfBlock ? renderPrefix('lyra') : BODY_INDENT}
       </text>
       <text wrapMode="word" flexGrow={1} fg="#e5e7eb">
         <MarkdownSegments text={props.text} />
@@ -185,7 +185,7 @@ function ToolCallRow(props: {
   return (
     <box flexDirection="row">
       <text fg="#86efac" flexShrink={0}>
-        {props.firstOfBlock ? renderPrefix('nebula') : BODY_INDENT}
+        {props.firstOfBlock ? renderPrefix('lyra') : BODY_INDENT}
       </text>
       <text wrapMode="word" flexGrow={1}>
         {/* @ts-expect-error opentui SpanProps omits fg, runtime accepts it */}

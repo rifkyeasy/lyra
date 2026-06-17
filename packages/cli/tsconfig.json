@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "composite": true,
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid"
+  },
+  "references": [
+    { "path": "../core" },
+    { "path": "../gateway" },
+    { "path": "../plugin-system" },
+    { "path": "../plugin-telegram" }
+  ],
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

@@ -12,7 +12,7 @@ export {
  * `<text>` block. Caller owns the wrapping `<text>` (so wrapMode + flexGrow
  * stay configurable).
  *
- * Why custom rather than opentui's built-in `<markdown>`: nebula already
+ * Why custom rather than opentui's built-in `<markdown>`: lyra already
  * renders assistant text inside a row that has a fixed-width prefix
  * gutter; switching to `<markdown>` would break the indent and gutter
  * alignment because it owns its own layout. A custom renderer that emits
