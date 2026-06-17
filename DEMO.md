@@ -94,7 +94,7 @@ bun run lyra telegram setup  # drive it from your phone (inline-keyboard approva
 cd apps/web && bun run dev    # web console — Sui wallet sign-in, on-chain policy view
 ```
 
-The Telegram bot and web console drive the **identical** agent with the **identical** policy gates — material-risk actions arrive as approvals.
+The CLI, gateway, and Telegram bot drive the **identical** autonomous agent with the **identical** policy gates — material-risk actions arrive as approvals. The **web console** adds a second execution path: with a wallet connected, asking it to **send** or **swap** returns an Execute button that builds the PTB in the browser and your **own wallet** signs it — Lyra prepares the action and never holds your keys (verified: `propose_transfer` / `propose_swap` → client-side build via the same 7k routing → wallet `signAndExecute`).
 
 ---
 

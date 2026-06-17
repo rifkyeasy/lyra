@@ -2,12 +2,13 @@
 
 import { useAgentWallet } from '@/components/AgentWalletContext'
 import { useSuiAuth } from '@/components/SuiAuthContext'
-import type { Msg, TraceItem } from '@/lib/chat-store'
+import type { Msg, PendingAction, TraceItem } from '@/lib/chat-store'
 import { useCurrentAccount } from '@mysten/dapp-kit'
 import { motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
-import { MarkdownView } from './MarkdownView'
+import { ActionCard } from './ActionCard'
 import { AgentWalletBar } from './AgentWalletBar'
+import { MarkdownView } from './MarkdownView'
 
 const SUGGESTIONS = [
   "What's the best stablecoin yield on Sui right now?",
@@ -23,20 +24,29 @@ const TEMPLATES: { group: string; items: { label: string; prompt: string }[] }[]
   {
     group: 'Yields',
     items: [
-      { label: 'Best stablecoin yield', prompt: 'Where can I earn the most on stablecoins on Sui right now? Show APY and TVL.' },
-      { label: 'Top pools by APY', prompt: 'What are the top DeFi pools on Sui by APY right now, with their TVL?' },
+      {
+        label: 'Best stablecoin yield',
+        prompt: 'Where can I earn the most on stablecoins on Sui right now? Show APY and TVL.',
+      },
+      {
+        label: 'Top pools by APY',
+        prompt: 'What are the top DeFi pools on Sui by APY right now, with their TVL?',
+      },
     ],
   },
   {
-    group: 'Swap',
+    group: 'Swap (you sign)',
     items: [
-      { label: 'Swap SUI → USDC', prompt: 'Swap 0.01 SUI to USDC on Cetus.' },
-      { label: 'Swap USDC → SUI', prompt: 'Swap 5 USDC to SUI on Cetus.' },
-      { label: 'Just a price quote', prompt: 'What would I get if I swap 100 USDC to SUI? Just a quote, do not execute.' },
+      { label: 'Swap SUI → USDC', prompt: 'Swap 1 SUI to USDC.' },
+      { label: 'Swap USDC → SUI', prompt: 'Swap 1 USDC to SUI.' },
+      {
+        label: 'Just a price quote',
+        prompt: 'What would I get if I swap 100 USDC to SUI? Just a quote, do not prepare a swap.',
+      },
     ],
   },
   {
-    group: 'Transfer',
+    group: 'Transfer (you sign)',
     items: [
       { label: 'Send SUI', prompt: 'Send 0.01 SUI to 0x….' },
       { label: 'Send a coin', prompt: 'Send 5 USDC to 0x….' },
@@ -47,16 +57,30 @@ const TEMPLATES: { group: string; items: { label: string; prompt: string }[] }[]
     items: [
       { label: 'Supply / lend', prompt: 'Supply 5 USDC to Suilend to earn yield.' },
       { label: 'Withdraw', prompt: 'Withdraw all my USDC from Suilend.' },
-      { label: 'Suilend rates', prompt: 'What are the current Suilend supply and borrow rates on Sui?' },
+      {
+        label: 'Suilend rates',
+        prompt: 'What are the current Suilend supply and borrow rates on Sui?',
+      },
     ],
   },
   {
     group: 'Portfolio & policy',
     items: [
-      { label: 'My portfolio value', prompt: 'What is my full treasury portfolio worth right now? Break it down by coin with USD values.' },
+      {
+        label: 'My portfolio value',
+        prompt:
+          'What is my full treasury portfolio worth right now? Break it down by coin with USD values.',
+      },
       { label: 'My SUI + USDC balance', prompt: 'What is my balance in SUI and USDC right now?' },
-      { label: 'Holdings of an address', prompt: 'What is the full coin portfolio of 0x… on Sui, with USD values?' },
-      { label: 'My AgentPolicy', prompt: 'Show my AgentPolicy: budget, spent, per-tx cap, allowed coins and protocols, expiry, and whether it is revoked.' },
+      {
+        label: 'Holdings of an address',
+        prompt: 'What is the full coin portfolio of 0x… on Sui, with USD values?',
+      },
+      {
+        label: 'My AgentPolicy',
+        prompt:
+          'Show my AgentPolicy: budget, spent, per-tx cap, allowed coins and protocols, expiry, and whether it is revoked.',
+      },
       { label: 'Recent receipts', prompt: 'Show my recent ActionReceipts on Sui.' },
     ],
   },
@@ -110,6 +134,7 @@ export function Chat({
         reply?: string
         error?: string
         trace?: TraceItem[]
+        action?: PendingAction
       }
       onMessagesChange([
         ...next,
@@ -117,6 +142,7 @@ export function Chat({
           role: 'assistant',
           content: data.reply ?? data.error ?? '(no reply)',
           trace: data.trace,
+          pendingAction: data.action,
         },
       ])
     } catch (e) {
@@ -132,7 +158,11 @@ export function Chat({
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <AgentWalletBar />
-      <div ref={scrollRef} data-lenis-prevent className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div
+        ref={scrollRef}
+        data-lenis-prevent
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      >
         {onMenu ? (
           <div className="sticky top-0 z-10 flex items-center border-b border-[var(--color-border)] bg-[var(--color-cream)] px-3 py-2 md:hidden">
             <button
@@ -159,8 +189,8 @@ export function Chat({
                   Prompt lyra.
                 </h1>
                 <p className="mx-auto max-w-[48ch] text-[14.5px] leading-[1.6] text-[var(--color-ink-2)]">
-                  Live on-chain answers on Sui. Value-moving actions are policy-capped by the on-chain
-                  AgentPolicy, dry-run, and gated to the signed-in owner.
+                  Live on-chain answers on Sui — and transfers &amp; swaps you execute with your own
+                  connected wallet. The autonomous agent runs bounded by its on-chain AgentPolicy.
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
@@ -185,7 +215,9 @@ export function Chat({
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3 }}
-                  className={m.role === 'user' ? 'flex flex-col items-end' : 'flex flex-col items-start'}
+                  className={
+                    m.role === 'user' ? 'flex flex-col items-end' : 'flex flex-col items-start'
+                  }
                 >
                   {m.role === 'user' ? (
                     <p className="max-w-[85%] overflow-hidden whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-[var(--color-paper)] px-4 py-2.5 text-[14.5px] leading-[1.55] text-[var(--color-ink)]">
@@ -215,6 +247,7 @@ export function Chat({
                           ))}
                         </div>
                       ) : null}
+                      {m.pendingAction ? <ActionCard action={m.pendingAction} /> : null}
                     </div>
                   )}
                 </motion.div>
@@ -257,9 +290,9 @@ export function Chat({
             </button>
           </form>
           <p className="mt-2 text-center font-mono text-[11px] text-[var(--color-ink-3)]">
-            {authed
-              ? `owner ${authed.slice(0, 6)}…${authed.slice(-4)} signed in · actions run through your policy-checked agent`
-              : 'read-only · connect + sign in (top right) to act as the owner'}
+            {account
+              ? `wallet ${account.address.slice(0, 6)}…${account.address.slice(-4)} connected · transfers & swaps execute from your own wallet`
+              : 'connect your Sui wallet (top right) to execute transfers & swaps yourself'}
           </p>
         </div>
       </div>
@@ -334,7 +367,8 @@ function TemplateMenu({ onPick }: { onPick: (prompt: string) => void }) {
           />
           <div
             data-lenis-prevent
-            className="absolute bottom-full left-0 z-50 mb-2 max-h-[60vh] w-[300px] max-w-[calc(100vw-2.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--color-border)] bg-[var(--color-cream)] p-2 shadow-[0_30px_80px_-30px_rgba(16,15,9,0.45)]">
+            className="absolute bottom-full left-0 z-50 mb-2 max-h-[60vh] w-[300px] max-w-[calc(100vw-2.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--color-border)] bg-[var(--color-cream)] p-2 shadow-[0_30px_80px_-30px_rgba(16,15,9,0.45)]"
+          >
             {TEMPLATES.map(group => (
               <div key={group.group} className="mb-1 last:mb-0">
                 <p className="px-2 pb-1 pt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-ink-3)]">

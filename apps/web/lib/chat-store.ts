@@ -5,16 +5,28 @@
 // bucket. Client-only (guards every localStorage access).
 
 export type TraceItem = { tool: string; args: unknown; result: unknown }
-export type PendingAction = {
-  kind: 'transfer' | 'token-transfer' | 'wrap' | 'unwrap' | 'swap' | 'approve' | 'lend'
-  from: string
-  to: string
-  amount: string
-  valueWei: string
-  data?: string
-  label?: string
-  estimatedGasMnt?: string
-}
+// A value-moving action the web brain prepared for the user's OWN wallet to sign
+// + execute (the server holds no key). Mirrors `PendingAction` in lib/agent.ts.
+export type PendingAction =
+  | {
+      kind: 'transfer'
+      coinType: string
+      symbol: string
+      decimals: number
+      amount: string
+      baseUnits: string
+      recipient: string
+    }
+  | {
+      kind: 'swap'
+      fromType: string
+      fromSymbol: string
+      toType: string
+      toSymbol: string
+      fromDecimals: number
+      amount: string
+      baseUnits: string
+    }
 // `pendingAction` is transient (a prepared tx awaiting wallet confirmation) and
 // is intentionally NOT persisted, so a reload never re-shows a stale confirm.
 export type Msg = {

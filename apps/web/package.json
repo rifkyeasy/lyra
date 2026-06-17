@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@7kprotocol/sdk-ts": "^4.0.0",
     "@mysten/dapp-kit": "^0.16.0",
     "@mysten/sui": "^1.45.0",
     "@next/third-parties": "^15.5.19",
