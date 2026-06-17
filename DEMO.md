@@ -94,7 +94,7 @@ bun run lyra telegram setup  # drive it from your phone (inline-keyboard approva
 cd apps/web && bun run dev    # web console — Sui wallet sign-in, on-chain policy view
 ```
 
-The CLI, gateway, and Telegram bot drive the **identical** autonomous agent with the **identical** policy gates — material-risk actions arrive as approvals. The **web console** adds a second execution path: with a wallet connected, asking it to **send** or **swap** returns an Execute button that builds the PTB in the browser and your **own wallet** signs it — Lyra prepares the action and never holds your keys (verified: `propose_transfer` / `propose_swap` → client-side build via the same 7k routing → wallet `signAndExecute`).
+All four interfaces drive the **identical** policy-bound agent wallet. The CLI, gateway, and Telegram bot run it locally / by pairing. The **web console** does the same remotely: signing in with your Sui wallet (SIWS) proves you're the **owner**, and asking it to **send** or **swap** returns an Execute button — clicking it runs the action with the **agent wallet server-side**, under the on-chain AgentPolicy, exactly like the CLI. The connected wallet is **identity/authorization**, never the signer; the agent key never reaches the browser (verified on mainnet: `/api/execute` agent transfer `HePrDnRz…` + swap via Cetus `AsNRxUmg…`, and a 5-SUI request **blocked** by the per-tx cap).
 
 ---
 
