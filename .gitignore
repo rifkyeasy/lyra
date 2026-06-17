@@ -1,39 +1,69 @@
-# dependencies
+# Dependencies
 node_modules/
-.pnp
-.pnp.*
 
-# builds
+# Build artifacts
 dist/
 build/
-.next/
-out/
 *.tsbuildinfo
 
-# Move build output
-move/**/build/
+# Bun
+# NOTE: commit bun.lock for reproducible CI installs (frozen-lockfile)
 
-# env / secrets — keep only the example
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+broadcast/
+lcov.info
+
+# Environment & secrets (NEVER commit keys)
 .env
-.env.*
-!.env.example
+.env.local
+.env*.local
 *.key
-*.keystore
-.lyra/
+*.pem
+secrets/
 
-# logs
-*.log
-npm-debug.log*
-bun-debug.log*
-
-# os / editor
+# OS
 .DS_Store
-.idea/
-.vscode/
+Thumbs.db
 
-# internal research & strategy (not part of the public submission)
-knowledge/
-
-# local tooling
-.beads/
+# Claude / agent context (local only)
 .claude/
+
+# Internal project knowledge (local-only research/strategy, not shipped)
+knowledge/
+knowledge-sui/
+
+# Logs
+*.log
+
+# Local agent state (per-machine, never committed)
+.lyra/
+lyra.config.ts
+
+# Test fixtures with private keys
+test/fixtures/keys/
+
+# Local integration tests (real API calls, may contain secrets/findings).
+test/local/*
+!test/local/tmux-*.ts
+!test/local/_tmux.ts
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Next.js build outputs (apps/web)
+apps/web/.next/
+apps/web/.vercel/
+apps/web/out/
+.vercel
+
+# npm artifact from isolated apps/web installs (repo uses bun.lock)
+apps/web/package-lock.json
+
+# Hackathon submission prep (pitch deck, demo script, claims) — kept local only
+submission/

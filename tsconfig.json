@@ -1,16 +1,11 @@
 {
   "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "noEmit": true,
-    "baseUrl": ".",
-    "paths": {
-      "lyra-core": ["packages/core/src/index.ts"],
-      "lyra-plugin-sui": ["packages/plugin-sui/src/index.ts"],
-      "lyra-plugin-walrus": ["packages/plugin-walrus/src/index.ts"],
-      "lyra-plugin-deepbook": ["packages/plugin-deepbook/src/index.ts"],
-      "lyra-plugin-telegram": ["packages/plugin-telegram/src/index.ts"],
-      "lyra-ai-agent": ["packages/cli/src/index.ts"]
-    }
-  },
-  "include": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"]
+  "files": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/cli" },
+    { "path": "./packages/gateway" },
+    { "path": "./packages/plugin-onchain" },
+    { "path": "./packages/plugin-system" }
+  ]
 }

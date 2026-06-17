@@ -1,26 +1,37 @@
 {
   "name": "lyra",
+  "version": "0.24.17",
   "private": true,
   "type": "module",
-  "description": "Lyra AI — a Sui-native, policy-bound AI agent for autonomous DeFi.",
+  "description": "A Sui-native, policy-bound autonomous finance agent",
+  "repository": "github.com/rifkyeasy/lyra",
   "license": "MIT",
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
+  "workspaces": ["packages/*", "apps/*"],
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "bun run --filter='*' build",
+    "typecheck": "tsc -b",
+    "test": "bun test --timeout 30000 packages/*/src",
     "lint": "biome check .",
+    "format": "biome format --write .",
     "fix": "biome check --write .",
-    "chat": "bun packages/cli/src/cli.ts",
-    "agent": "bun packages/cli/src/cli.ts agent",
-    "demo": "bun packages/cli/src/cli.ts demo",
-    "gateway": "bun packages/gateway/src/server.ts"
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "bun run build && changeset publish",
+    "lyra": "bun packages/cli/bin/lyra"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
-    "@types/bun": "^1.3.14",
-    "@types/node": "^22.0.0",
-    "typescript": "^5.6.0"
+    "@changesets/cli": "^2.27.10",
+    "@types/bun": "^1.1.14",
+    "@types/node": "^22.10.2",
+    "lyra-core": "workspace:*",
+    "lyra-plugin-telegram": "workspace:*",
+    "@opentui/core": "^0.1.97",
+    "@opentui/solid": "^0.1.97",
+    "solid-js": "^1.9.12",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "agent-browser": "^0.26.0"
   }
 }

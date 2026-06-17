@@ -7,20 +7,20 @@ This workspace contains Sui Overflow 2026 hackathon project context.
 Read the local knowledge base before making product, architecture, submission,
 or track-positioning decisions:
 
-- `knowledge/README.md`
-- `knowledge/00-project-knowledge.md`
-- `knowledge/product/recommended-concept.md`
-- `knowledge/product/mvp-architecture.md`
-- `knowledge/hackathon/overview.md`
-- `knowledge/hackathon/tracks-and-judging.md`
-- `knowledge/hackathon/requirements.md`
-- `knowledge/sui/network.md`
-- `knowledge/ecosystem/defi-protocols.md`
-- `knowledge/ecosystem/assets.md`
-- `knowledge/walrus/overview.md`
-- `knowledge/deepbook/predict.md`
-- `knowledge/reference/protocol-registry.md`
-- `knowledge/reference/sources.md`
+- `knowledge-sui/README.md`
+- `knowledge-sui/00-project-knowledge.md`
+- `knowledge-sui/product/recommended-concept.md`
+- `knowledge-sui/product/mvp-architecture.md`
+- `knowledge-sui/hackathon/overview.md`
+- `knowledge-sui/hackathon/tracks-and-judging.md`
+- `knowledge-sui/hackathon/requirements.md`
+- `knowledge-sui/sui/network.md`
+- `knowledge-sui/ecosystem/defi-protocols.md`
+- `knowledge-sui/ecosystem/assets.md`
+- `knowledge-sui/walrus/overview.md`
+- `knowledge-sui/deepbook/predict.md`
+- `knowledge-sui/reference/protocol-registry.md`
+- `knowledge-sui/reference/sources.md`
 
 ## Project Direction
 

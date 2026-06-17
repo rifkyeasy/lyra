@@ -1,19 +1,27 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "lib": ["ES2022"],
     "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "moduleResolution": "bundler",
     "moduleDetection": "force",
-    "jsx": "preserve",
-    "jsxImportSource": "@opentui/solid",
-    "lib": ["ES2023"],
-    "types": ["node", "bun"],
+    "resolveJsonModule": true,
+    "jsx": "react-jsx",
+
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "esModuleInterop": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+
+    "noEmit": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "declaration": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    "types": ["bun"],
+
+    "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true
   }
 }
