@@ -1,6 +1,7 @@
 import { Navbar } from '@/components/Navbar'
 import { Footer } from '@/components/Footer'
 import { Hero } from '@/components/sections/Hero'
+import { IntegratedProtocols } from '@/components/sections/IntegratedProtocols'
 import { V1Opener } from '@/components/sections/section2/V1Opener'
 
 export const metadata = {
@@ -15,6 +16,7 @@ export default function LandingPage() {
       <Navbar />
       <Hero />
       <V1Opener />
+      <IntegratedProtocols />
       <Footer />
     </main>
   )
