@@ -3,6 +3,13 @@
  * commands/<name>.
  */
 
+import { loadDotenvFile } from './util/dotenv'
+
+// Zero-env-var startup: load `~/.lyra/.env` (e.g. the OPENAI_API_KEY that
+// `lyra init` persisted) into process.env before any command reads it. Real
+// shell env always wins — loadDotenvFile only fills UNSET keys.
+loadDotenvFile()
+
 const argv = process.argv.slice(2)
 // First arg starting with `--` means the user invoked the default subcommand
 // (chat) with flags, e.g. `lyra --yolo`. Treat it as if `chat` were implicit.
@@ -21,7 +28,15 @@ async function main(): Promise<void> {
     }
     case 'init': {
       const { runInit } = await import('./commands/init')
-      await runInit()
+      await runInit({
+        yes: argv.includes('--yes') || argv.includes('-y'),
+        new: argv.includes('--new'),
+      })
+      return
+    }
+    case 'login': {
+      const { runLogin } = await import('./commands/login')
+      await runLogin()
       return
     }
     case 'status': {
@@ -113,7 +128,8 @@ function printHelp(): void {
       'lyra: a Sui-native, policy-bound AI finance agent',
       '',
       'Commands:',
-      '  lyra init                bootstrap the agent config (uses LYRA_AGENT_KEY)',
+      '  lyra init                set up your agent (interactive; --new / --yes skip prompts)',
+      '  lyra login               link the same agent as lyraai.space (device-link)',
       '  lyra [--yolo]            interactive chat with your agent (default; --yolo skips approvals)',
       '  lyra status              show agent address + network + SUI balance + policy',
       '  lyra whoami [--owner 0x…] resolve the agent wallet an owner controls (same on web/CLI/TG)',
@@ -128,8 +144,10 @@ function printHelp(): void {
       '  lyra version             print CLI version  (aliases: --version, -v)',
       '  lyra help                show this message  (aliases: --help, -h)',
       '',
-      'Env: LYRA_AGENT_KEY (suiprivkey1…), LYRA_NETWORK, LYRA_PACKAGE_ID,',
-      '     LYRA_LLM_BASE_URL, LYRA_LLM_MODEL, OPENAI_API_KEY, LYRA_POLICY_*',
+      'Zero-config: `lyra init` writes ~/.lyra/agent.key + ~/.lyra/.env, so no env',
+      'vars are required. All env below are OPTIONAL overrides (env wins if set):',
+      '  LYRA_AGENT_KEY (suiprivkey1…), LYRA_NETWORK, LYRA_PACKAGE_ID, LYRA_WEB_URL,',
+      '  LYRA_LLM_BASE_URL, LYRA_LLM_MODEL, OPENAI_API_KEY, LYRA_POLICY_*',
       '',
     ].join('\n'),
   )

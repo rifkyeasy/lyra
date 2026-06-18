@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { cancel, intro, isCancel, outro, select } from '@clack/prompts'
+import { cancel, intro, isCancel, outro, password, select } from '@clack/prompts'
+import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import {
   type LyraNetwork,
   agentPaths,
@@ -9,24 +10,44 @@ import {
   placeholderAgentId,
   suiRpcUrl,
 } from 'lyra-core'
+import { keypairFromSecret } from 'lyra-plugin-onchain'
+import { DEFAULT_NETWORK, resolvePackageId } from '../config/defaults'
 import { writeConfigTs } from '../config/render'
-import { AGENT_KEY_ENV, loadAgentFromEnv } from '../util/sui-runtime'
+import { setDotenvVar } from '../util/dotenv'
+import { type SuiAgent, loadAgent, writeAgentKey } from '../util/sui-runtime'
 import { pickBrainModel } from './init/model-picker'
+import { deviceLink, resolveWebBase } from './login'
 
 /**
- * `lyra init` — bootstrap the agent config for Sui.
+ * `lyra init` — bootstrap the agent for Sui with ZERO env vars.
  *
- * On Sui there is no operator wallet, keystore, or funding step. The agent IS
- * the signer: one Ed25519 keypair, supplied via the `LYRA_AGENT_KEY` env var
- * (`suiprivkey1…`). init resolves that key, derives the agent's Sui address,
- * writes `~/.lyra/config.ts`, and seeds the starter memory files.
+ * The user answers ~1 prompt and the CLI works:
+ *   1. LLM key — reuse OPENAI_API_KEY if set, else prompt + persist to
+ *      `~/.lyra/.env` (mode 0600).
+ *   2. Agent — "Create new" (generate a fresh Ed25519 key, written to
+ *      `~/.lyra/agent.key`) OR "Login with web" (device-link to lyraai.space →
+ *      the SAME agent as the web wallet).
+ *   3. Config — network + package id defaults written to `~/.lyra/config.ts`.
+ *
+ * Non-interactive safe: when stdin is not a TTY, or `--yes` / `--new` is passed,
+ * prompts are skipped and init defaults to "Create new" using env-provided keys.
  */
-export async function runInit(opts?: { resume?: boolean }): Promise<void> {
+export interface InitOpts {
+  resume?: boolean
+  /** Skip all prompts; default to "Create new" (CI / non-TTY). */
+  yes?: boolean
+  /** Force "Create new" even in a TTY (skip the create/login choice). */
+  new?: boolean
+}
+
+export async function runInit(opts?: InitOpts): Promise<void> {
   const configPath = agentPaths.config
+  const interactive = !!process.stdin.isTTY && !opts?.yes
+  const forceNew = !!opts?.new || !interactive
 
   intro('lyra init')
 
-  if (existsSync(configPath) && !opts?.resume) {
+  if (existsSync(configPath) && !opts?.resume && interactive) {
     const choice = (await select({
       message: `${configPath} exists`,
       options: [
@@ -41,28 +62,97 @@ export async function runInit(opts?: { resume?: boolean }): Promise<void> {
     }
   }
 
-  // The agent key is sourced from the environment (never prompted/stored on
-  // disk). If it is missing we cannot derive the Sui address, so bail with a
-  // clear instruction.
-  const agent = loadAgentFromEnv()
-  if (!agent) {
-    cancel(
-      `No ${AGENT_KEY_ENV} set. Export your agent's Sui secret key first, e.g.\n  export ${AGENT_KEY_ENV}=suiprivkey1...\nThen re-run \`lyra init\`.`,
-    )
-    return
+  // 1) LLM key. Reuse OPENAI_API_KEY if present; else prompt + persist so the
+  //    CLI runs keyless next time. In non-interactive mode we just use whatever
+  //    the env provides (the CLI falls back to the hosted demo proxy if unset).
+  if (interactive && !process.env.OPENAI_API_KEY && !process.env.LYRA_LLM_API_KEY) {
+    const key = await password({
+      message: 'OpenAI API key (sk-…) — leave blank to use the hosted demo proxy',
+    })
+    if (isCancel(key)) {
+      cancel('Aborted.')
+      return
+    }
+    const trimmed = (key ?? '').toString().trim()
+    if (trimmed) {
+      const envPath = setDotenvVar('OPENAI_API_KEY', trimmed)
+      console.log(`  saved OPENAI_API_KEY → ${envPath}`)
+    }
   }
 
-  const network = (await select({
-    message: 'Which Sui network?',
-    options: [
-      { value: 'mainnet' as LyraNetwork, label: 'Sui mainnet' },
-      { value: 'testnet' as LyraNetwork, label: 'Sui testnet' },
-    ],
-    initialValue: 'mainnet' as LyraNetwork,
-  })) as LyraNetwork
-  if (isCancel(network)) {
-    cancel('Aborted.')
-    return
+  // 2) Agent: create new (default) or login with web.
+  let agent: SuiAgent
+  let linkedOwner: string | null = null
+
+  let mode: 'create' | 'login' = 'create'
+  if (!forceNew) {
+    const picked = (await select({
+      message: 'How do you want your agent?',
+      options: [
+        {
+          value: 'create',
+          label: 'Create new — generate a fresh agent, you hold the key',
+        },
+        {
+          value: 'login',
+          label: 'Login with web — use the same agent as lyraai.space',
+        },
+      ],
+      initialValue: 'create',
+    })) as 'create' | 'login' | symbol
+    if (isCancel(picked)) {
+      cancel('Aborted.')
+      return
+    }
+    mode = picked
+  }
+
+  if (mode === 'login') {
+    try {
+      const result = await deviceLink({
+        base: resolveWebBase(),
+        fetchImpl: fetch,
+        sleep: (ms: number) => new Promise(r => setTimeout(r, ms)),
+        log: (m: string) => console.log(m),
+      })
+      linkedOwner = result.owner
+      // writeAgentKey already ran inside deviceLink; reload from disk.
+      const loaded = loadAgent()
+      if (!loaded) throw new Error('agent key was not written after login')
+      agent = loaded
+      console.log('')
+      console.log(`✓ Linked agent ${result.address} (same as your web wallet)`)
+    } catch (e) {
+      cancel(`Login failed: ${(e as Error).message}`)
+      return
+    }
+  } else {
+    // Create new: generate a fresh Ed25519 agent and persist the secret.
+    const kp = new Ed25519Keypair()
+    const secret = kp.getSecretKey()
+    const keyPath = writeAgentKey(secret)
+    agent = { keypair: keypairFromSecret(secret), address: kp.toSuiAddress() }
+    console.log('')
+    console.log(`✓ Created agent ${agent.address}`)
+    console.log(`  key  ${keyPath} (mode 0600 — back this up; it controls funds)`)
+  }
+
+  // 3) Network. Skip the prompt when non-interactive (default mainnet).
+  let network: LyraNetwork = DEFAULT_NETWORK
+  if (interactive) {
+    const picked = (await select({
+      message: 'Which Sui network?',
+      options: [
+        { value: 'mainnet' as LyraNetwork, label: 'Sui mainnet' },
+        { value: 'testnet' as LyraNetwork, label: 'Sui testnet' },
+      ],
+      initialValue: DEFAULT_NETWORK as LyraNetwork,
+    })) as LyraNetwork | symbol
+    if (isCancel(picked)) {
+      cancel('Aborted.')
+      return
+    }
+    network = picked
   }
 
   const modelPick = await pickBrainModel()
@@ -85,7 +175,7 @@ export async function runInit(opts?: { resume?: boolean }): Promise<void> {
 
   const cfg = defineConfig({
     identity: {
-      operator: null,
+      operator: linkedOwner,
       agent: agent.address,
     },
     network,
@@ -102,15 +192,17 @@ export async function runInit(opts?: { resume?: boolean }): Promise<void> {
     header: '// Regenerated by `lyra init`. Edit freely; type-safe.',
   })
 
-  const packageId = process.env.LYRA_PACKAGE_ID
+  const packageId = resolvePackageId()
   const lines = [
     '',
     `  agent id    ${agentId}`,
     `  agent addr  ${agent.address}`,
+    linkedOwner ? `  owner       ${linkedOwner} (linked from web)` : '',
     `  network     ${network} (${suiRpcUrl(network)})`,
     `  config      ${configPath}`,
-    `  policy pkg  ${packageId ?? '(set LYRA_PACKAGE_ID for on-chain receipts)'}`,
-  ]
+    `  agent key   ${agentPaths.agentKey}`,
+    `  policy pkg  ${packageId}`,
+  ].filter(Boolean)
   if (modelPick) lines.push(`  brain       ${modelPick.model ?? '?'} (${modelPick.provider})`)
   if (telegramEnabled) lines.push('  telegram    enabled (TELEGRAM_BOT_TOKEN set)')
   lines.push(

@@ -25,7 +25,7 @@ import onchainPlugin, {
   suiToMist,
 } from 'lyra-plugin-onchain'
 import { findAndLoadConfig } from '../config/load'
-import { buildOnchainContext, loadAgentFromEnv } from '../util/sui-runtime'
+import { buildOnchainContext, loadAgent } from '../util/sui-runtime'
 
 const SUI_TYPE = '0x2::sui::SUI'
 
@@ -60,9 +60,9 @@ export async function runDemo(opts: DemoOpts = {}): Promise<void> {
   }
   const { config } = found
 
-  const agent = loadAgentFromEnv()
+  const agent = loadAgent()
   if (!agent) {
-    console.log('No LYRA_AGENT_KEY set. Run `lyra init` first.')
+    console.log('No agent key found. Run `lyra init` first.')
     process.exit(1)
   }
 

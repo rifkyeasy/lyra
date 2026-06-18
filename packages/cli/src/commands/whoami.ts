@@ -8,12 +8,8 @@
  * on CLI), but they all resolve to the same agent.
  */
 
-import {
-  type SuiNetwork,
-  deriveAgentAddress,
-  makeSuiClient,
-  resolveOwnerVault,
-} from 'lyra-plugin-onchain'
+import { deriveAgentAddress, makeSuiClient, resolveOwnerVault } from 'lyra-plugin-onchain'
+import { resolveNetwork } from '../config/defaults'
 
 export async function runWhoami(opts: { owner?: string }): Promise<void> {
   const owner = opts.owner ?? process.env.LYRA_OWNER_ADDRESS
@@ -30,7 +26,7 @@ export async function runWhoami(opts: { owner?: string }): Promise<void> {
     process.exit(1)
     return
   }
-  const network = (process.env.LYRA_NETWORK as SuiNetwork) ?? 'mainnet'
+  const network = resolveNetwork()
   const client = makeSuiClient(network)
   const [bal, ov] = await Promise.all([
     client.getBalance({ owner: agent }).catch(() => null),

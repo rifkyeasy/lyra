@@ -55,10 +55,11 @@ import {
   type TelegramRuntimeContext,
   formatInboundPreview as formatTelegramInboundPreview,
 } from 'lyra-plugin-telegram'
+import { DEFAULT_LLM_MODEL, resolveLlmBaseUrl } from '../config/defaults'
 import { findAndLoadConfig } from '../config/load'
 import { writeConfigTs } from '../config/render'
 import { shortAddr } from '../util/format'
-import { buildOnchainContext, loadAgentFromEnv } from '../util/sui-runtime'
+import { buildOnchainContext, loadAgent } from '../util/sui-runtime'
 import {
   type TelegramDispatchSlot,
   buildTelegramDispatch,
@@ -78,9 +79,9 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
   // `LYRA_AGENT_KEY` env (`suiprivkey1…`). No operator wallet, keystore
   // decrypt, or a Sui wallet dance. The deterministic policy (mirrored
   // on-chain by `lyra::policy`) bounds what the key may do.
-  const agent = loadAgentFromEnv()
+  const agent = loadAgent()
   if (!agent) {
-    console.log('No LYRA_AGENT_KEY set. Run `lyra init` first (or export a suiprivkey1… key).')
+    console.log('No agent key found. Run `lyra init` first (or export a suiprivkey1… key).')
     process.exit(1)
   }
   const agentAddress = agent.address
@@ -160,8 +161,11 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
   const userLlmKey = process.env.OPENAI_API_KEY ?? process.env.LYRA_LLM_API_KEY
   // No personal key set → fall back to the hosted demo proxy so lyra runs keyless.
   const llmApiKey = userLlmKey ?? DEMO_LLM_TOKEN
-  const llmBaseUrl = process.env.LYRA_LLM_BASE_URL ?? (userLlmKey ? undefined : DEMO_LLM_BASE_URL)
-  const llmModel = process.env.LYRA_LLM_MODEL ?? config.brain?.model ?? 'gpt-4o-mini'
+  // With a personal key, default to the OpenAI endpoint; keyless uses the demo proxy.
+  const llmBaseUrl = userLlmKey
+    ? resolveLlmBaseUrl()
+    : (process.env.LYRA_LLM_BASE_URL ?? DEMO_LLM_BASE_URL)
+  const llmModel = process.env.LYRA_LLM_MODEL ?? config.brain?.model ?? DEFAULT_LLM_MODEL
 
   // Sub-brain factory for delegate.task (Phase 9.3). The factory creates a
   // fresh OpenAIBrain with a custom system prompt. Tools default to none for
@@ -1086,7 +1090,7 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
 
 async function runModelPicker(config: LyraConfig, configPath: string): Promise<LyraConfig | null> {
   // Lyra uses a fixed OpenAI-compatible model (env-configured); no live catalog.
-  const model = process.env.LYRA_LLM_MODEL ?? config.brain?.model ?? 'gpt-4o-mini'
+  const model = process.env.LYRA_LLM_MODEL ?? config.brain?.model ?? DEFAULT_LLM_MODEL
   const updated: LyraConfig = {
     ...config,
     brain: { provider: 'openai-compatible', model },
