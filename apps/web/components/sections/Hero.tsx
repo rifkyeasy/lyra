@@ -58,6 +58,8 @@ export function Hero() {
           enableMouseInteraction
           mouseInfluence={2}
         />
+        {/* fade the waves into the page at the bottom so they don't look hard-cut */}
+        <div className="absolute inset-x-0 bottom-0 h-[30%] bg-gradient-to-t from-[var(--color-cream)] via-[var(--color-cream)]/70 to-transparent" />
       </div>
       <div className="relative mx-auto flex h-screen w-full max-w-[var(--container-wrap)] flex-col items-center justify-center px-6 text-center sm:px-8">
         <motion.h1
@@ -68,10 +70,10 @@ export function Hero() {
           className="font-display text-[clamp(38px,4.8vw,68px)] font-normal leading-[1.02] tracking-[-0.025em] text-white mix-blend-difference"
         >
           <motion.span variants={lineVariants} className="block">
-            One Prompt. Any Action.
+            Ask. Do anything on-chain,
           </motion.span>
           <motion.span variants={lineVariants} className="block">
-            across the Sui ecosystem.
+            across the Sui network.
           </motion.span>
         </motion.h1>
 

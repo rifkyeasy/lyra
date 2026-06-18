@@ -17,38 +17,24 @@ type NavEntry = { label: string; href?: string; featured?: NavChild; items?: Nav
 const NAV: NavEntry[] = [
   {
     label: 'Product',
-    featured: { label: 'Open console', desc: 'Run treasury ops by chat — live', href: '/console' },
+    featured: { label: 'Open console', desc: 'Direct your agent by chat — live', href: '/console' },
     items: [
-      { label: 'Console', desc: 'Run treasury ops by chat', href: '/console' },
+      { label: 'Console', desc: 'Direct your agent by chat', href: '/console' },
       { label: 'Playground', desc: 'Try the agent, no wallet needed', href: '/playground' },
       { label: 'Agents', desc: 'Browse Sui agents', href: '/console/agents' },
     ],
   },
-  // Research is a top-level parent — it carries the verifiable-autonomy story.
-  { label: 'Research', href: '/research' },
   {
-    // General, product-facing docs: what lyra is and how to use it.
-    label: 'Docs',
-    items: [
-      { label: 'Overview', desc: 'What lyra is, end to end', href: '/docs' },
-      { label: 'Quickstart', desc: 'Install to live in minutes', href: '/docs/quickstart' },
-      { label: 'Using the console', desc: 'Chat-driven treasury ops', href: '/docs/console' },
-      { label: 'Architecture', desc: 'The four-gate write pipeline', href: '/docs/architecture' },
-    ],
-  },
-  {
-    // Developer docs: building on and integrating with lyra.
+    // Everything a builder needs: docs, the published CLI/SDK, and source.
     label: 'Developers',
     items: [
+      { label: 'Docs', desc: 'What Lyra is, end to end', href: '/docs' },
       {
-        label: 'SDK · npm',
-        desc: 'The lyra-core package',
-        href: 'https://www.npmjs.com/package/lyra-core',
+        label: 'CLI · npm',
+        desc: 'bun add -g lyra-ai-agent',
+        href: 'https://www.npmjs.com/package/lyra-ai-agent',
         external: true,
       },
-      { label: 'CLI reference', desc: 'The agent in your terminal', href: '/docs/cli' },
-      { label: 'Tools & plugins', desc: 'Extend the agent runtime', href: '/docs/tools' },
-      { label: 'On-chain policy', desc: 'Verifiable agent policy', href: '/docs/identity' },
       {
         label: 'GitHub',
         desc: 'Source, releases & issues',
@@ -57,26 +43,16 @@ const NAV: NavEntry[] = [
       },
     ],
   },
-  { label: 'Safety', href: '/safety' },
+  // Research carries the verifiable-autonomy story.
+  { label: 'Research', href: '/research' },
   { label: 'Pricing', href: '/pricing' },
   {
-    label: 'Company',
+    label: 'More',
     items: [
-      { label: 'About', desc: 'The mission behind lyra', href: '/about' },
+      { label: 'About', desc: 'The mission behind Lyra', href: '/about' },
       { label: 'Solutions', desc: 'For individuals, teams & funds', href: '/solutions' },
+      { label: 'Safety', desc: 'How the fund controls work', href: '/safety' },
       { label: 'Status', desc: 'Live system status', href: '/status' },
-      {
-        label: 'X / Twitter',
-        desc: '@lyraai_space',
-        href: 'https://x.com/lyraai_space',
-        external: true,
-      },
-      {
-        label: 'Releases',
-        desc: 'Changelog & versions',
-        href: 'https://github.com/rifkyeasy/lyra/releases',
-        external: true,
-      },
     ],
   },
 ]
