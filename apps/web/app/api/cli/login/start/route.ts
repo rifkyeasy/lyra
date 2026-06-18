@@ -25,6 +25,13 @@ export async function POST(req: Request) {
 function resolveOrigin(req: Request): string {
   const fromEnv = process.env.LYRA_WEB_URL || process.env.NEXT_PUBLIC_APP_URL
   if (fromEnv) return fromEnv.replace(/\/+$/, '')
+  // Behind a reverse proxy `req.url` is the internal host (e.g. localhost:3220);
+  // prefer the forwarded host so the public URL is returned.
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host')
+  const proto = req.headers.get('x-forwarded-proto') ?? 'https'
+  if (host && !host.startsWith('localhost') && !host.startsWith('127.0.0.1')) {
+    return `${proto}://${host}`
+  }
   try {
     return new URL(req.url).origin
   } catch {

@@ -85,11 +85,14 @@ export async function deviceLink(deps: LoginDeps): Promise<LoginResult> {
     throw new Error(`login/start failed (HTTP ${startRes.status}) at ${base}`)
   }
   const start = (await startRes.json()) as LoginStart
-  if (!start?.code || !start?.pollToken || !start?.verifyUrl) {
+  if (!start?.code || !start?.pollToken) {
     throw new Error('login/start returned an unexpected response')
   }
 
-  const linkUrl = `${start.verifyUrl}?code=${encodeURIComponent(start.code)}`
+  // Build the verify link from OUR base (where we pointed login), not the server's
+  // reported origin — that can resolve to an internal proxy host behind a reverse
+  // proxy. The CLI knows the public URL it called, so use it.
+  const linkUrl = `${base}/cli-login?code=${encodeURIComponent(start.code)}`
   log('')
   log('Approve this login in your browser:')
   log(`  ${linkUrl}`)
