@@ -1,0 +1,156 @@
+/**
+ * `lyra login` — device-link the CLI to the same agent your web wallet
+ * controls on lyraai.space.
+ *
+ * Flow (matches the web server contract exactly):
+ *   1. POST {base}/api/cli/login/start  → { code, pollToken, verifyUrl, expiresInSec }
+ *   2. Show the user the verify URL + code; best-effort open the browser.
+ *   3. Poll GET {base}/api/cli/login/poll?pollToken=… every 2s until expiry.
+ *      → { status:'pending' } keep waiting
+ *      → { status:'approved', owner, agentKey } write the key, done
+ *      → { status:'expired' | 'not_found' } friendly error, exit non-zero.
+ *
+ * The approved `agentKey` is a `suiprivkey1…` string — the SAME secret the web
+ * derives for that owner — so the CLI and the web operate one identical agent.
+ */
+
+import { keypairFromSecret } from 'lyra-plugin-onchain'
+import { writeAgentKey } from '../util/sui-runtime'
+
+/** Default web origin; override with LYRA_WEB_URL for local/staging testing. */
+const DEFAULT_WEB_URL = 'https://lyraai.space'
+const POLL_INTERVAL_MS = 2000
+
+export interface LoginStart {
+  code: string
+  pollToken: string
+  verifyUrl: string
+  expiresInSec: number
+}
+
+export type LoginPoll =
+  | { status: 'pending' }
+  | { status: 'approved'; owner: string; agentKey: string }
+  | { status: 'expired' }
+  | { status: 'not_found' }
+
+export interface LoginResult {
+  owner: string
+  address: string
+  keyPath: string
+}
+
+export interface LoginDeps {
+  base: string
+  fetchImpl: typeof fetch
+  /** Sleep between polls (injectable so tests run instantly). */
+  sleep: (ms: number) => Promise<void>
+  /** Monotonic clock (injectable so timeout tests are deterministic). */
+  now?: () => number
+  log: (msg: string) => void
+  openBrowser?: (url: string) => void
+}
+
+const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms))
+
+/** Best-effort: open `url` in the user's default browser. Never throws. */
+function openBrowserBestEffort(url: string): void {
+  try {
+    const platform = process.platform
+    const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open'
+    // Lazy import so the happy path / tests don't pull in child_process.
+    const { spawn } = require('node:child_process') as typeof import('node:child_process')
+    const child = spawn(cmd, [url], { stdio: 'ignore', detached: true })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // Headless / no browser — the printed URL is the fallback.
+  }
+}
+
+/**
+ * Core device-link logic, dependency-injected so tests never hit the network.
+ * Resolves with the linked agent or throws a friendly Error on
+ * expiry/timeout/not_found.
+ */
+export async function deviceLink(deps: LoginDeps): Promise<LoginResult> {
+  const { base, fetchImpl, log } = deps
+
+  const startRes = await fetchImpl(`${base}/api/cli/login/start`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  if (!startRes.ok) {
+    throw new Error(`login/start failed (HTTP ${startRes.status}) at ${base}`)
+  }
+  const start = (await startRes.json()) as LoginStart
+  if (!start?.code || !start?.pollToken || !start?.verifyUrl) {
+    throw new Error('login/start returned an unexpected response')
+  }
+
+  const linkUrl = `${start.verifyUrl}?code=${encodeURIComponent(start.code)}`
+  log('')
+  log('Approve this login in your browser:')
+  log(`  ${linkUrl}`)
+  log(`  (or enter code: ${start.code})`)
+  log('')
+  log('Waiting for approval…')
+  ;(deps.openBrowser ?? openBrowserBestEffort)(linkUrl)
+
+  const now = deps.now ?? Date.now
+  const expiresInSec = start.expiresInSec > 0 ? start.expiresInSec : 300
+  const deadline = now() + expiresInSec * 1000
+
+  while (now() < deadline) {
+    await deps.sleep(POLL_INTERVAL_MS)
+    const pollRes = await fetchImpl(
+      `${base}/api/cli/login/poll?pollToken=${encodeURIComponent(start.pollToken)}`,
+    )
+    if (!pollRes.ok) {
+      // Transient server hiccup — keep polling until the deadline.
+      continue
+    }
+    const poll = (await pollRes.json()) as LoginPoll
+    if (poll.status === 'approved') {
+      const keyPath = writeAgentKey(poll.agentKey)
+      const address = keypairFromSecret(poll.agentKey).toSuiAddress()
+      return { owner: poll.owner, address, keyPath }
+    }
+    if (poll.status === 'expired') {
+      throw new Error('Login request expired. Re-run `lyra login` and approve faster.')
+    }
+    if (poll.status === 'not_found') {
+      throw new Error('Login request not found (already used or invalid). Re-run `lyra login`.')
+    }
+    // pending → keep waiting.
+  }
+  throw new Error('Login timed out before approval. Re-run `lyra login`.')
+}
+
+/** Resolve the web base URL (env override → default). */
+export function resolveWebBase(env: NodeJS.ProcessEnv = process.env): string {
+  return env.LYRA_WEB_URL ?? DEFAULT_WEB_URL
+}
+
+/** Entry point for `lyra login`. Exits non-zero on failure. */
+export async function runLogin(): Promise<void> {
+  const base = resolveWebBase()
+  try {
+    const result = await deviceLink({
+      base,
+      fetchImpl: fetch,
+      sleep,
+      log: (m: string) => console.log(m),
+    })
+    console.log('')
+    console.log(`✓ Linked agent ${result.address} (same as your web wallet)`)
+    console.log(`  owner ${result.owner}`)
+    console.log(`  key   ${result.keyPath}`)
+    console.log('')
+    console.log('Next: `lyra` to chat · `lyra status` for health')
+  } catch (e) {
+    console.error(`lyra login: ${(e as Error).message}`)
+    process.exit(1)
+  }
+}

@@ -1,8 +1,9 @@
 import { existsSync, statSync } from 'node:fs'
 import { agentPaths, formatSui, getSuiBalanceMist, makeSuiClient, suiRpcUrl } from 'lyra-core'
 import { type SuiPolicy, policyFromEnv } from 'lyra-plugin-onchain'
+import { resolvePackageId, resolvePolicyEnv } from '../config/defaults'
 import { findAndLoadConfig } from '../config/load'
-import { loadAgentFromEnv } from '../util/sui-runtime'
+import { loadAgent } from '../util/sui-runtime'
 import { listAgentIds } from './_agents'
 
 export async function runStatus(opts?: { cwd?: string }): Promise<void> {
@@ -14,8 +15,8 @@ export async function runStatus(opts?: { cwd?: string }): Promise<void> {
   }
   const { config, path } = found
 
-  const agent = loadAgentFromEnv()
-  const agentAddress = agent?.address ?? config.identity.agent ?? '(no LYRA_AGENT_KEY)'
+  const agent = loadAgent()
+  const agentAddress = agent?.address ?? config.identity.agent ?? '(no agent key — run `lyra init`)'
 
   console.log(`config    ${path}`)
   console.log(`network   ${config.network}`)
@@ -25,11 +26,11 @@ export async function runStatus(opts?: { cwd?: string }): Promise<void> {
   console.log(`brain     ${config.brain.provider ?? '(not picked)'}`)
 
   // lyra::policy package + active deterministic policy summary.
-  const packageId = process.env.LYRA_PACKAGE_ID
-  console.log(`policy pkg ${packageId ?? '(LYRA_PACKAGE_ID unset)'}`)
+  const packageId = resolvePackageId()
+  console.log(`policy pkg ${packageId}`)
   const policyObjectId = process.env.LYRA_POLICY_OBJECT_ID
   if (policyObjectId) console.log(`policy obj ${policyObjectId}`)
-  const policy = policyFromEnv()
+  const policy = policyFromEnv(resolvePolicyEnv())
   if (policy) {
     console.log(`policy     ${summarizePolicy(policy)}`)
   } else {

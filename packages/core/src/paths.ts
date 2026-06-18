@@ -9,6 +9,10 @@ function lyraRoot(): string {
 export interface AgentPaths {
   readonly root: string
   readonly config: string
+  /** `~/.lyra/agent.key` — the agent's `suiprivkey1…` secret (file mode 0600). */
+  readonly agentKey: string
+  /** `~/.lyra/.env` — optional `KEY=value` lines loaded into env on startup. */
+  readonly dotenv: string
   readonly skills: string
   readonly plugins: string
   readonly agentsDir: string
@@ -34,6 +38,12 @@ export const agentPaths: AgentPaths = {
   },
   get config() {
     return join(lyraRoot(), 'config.ts')
+  },
+  get agentKey() {
+    return join(lyraRoot(), 'agent.key')
+  },
+  get dotenv() {
+    return join(lyraRoot(), '.env')
   },
   get skills() {
     return join(lyraRoot(), 'skills')

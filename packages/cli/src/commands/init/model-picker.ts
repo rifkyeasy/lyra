@@ -1,3 +1,5 @@
+import { DEFAULT_LLM_MODEL } from '../../config/defaults'
+
 export interface ModelPick {
   provider: string
   model: string | null
@@ -12,6 +14,6 @@ export interface ModelPick {
 export async function pickBrainModel(): Promise<ModelPick | null> {
   return {
     provider: 'openai-compatible',
-    model: process.env.LYRA_LLM_MODEL ?? 'gpt-4o-mini',
+    model: process.env.LYRA_LLM_MODEL ?? DEFAULT_LLM_MODEL,
   }
 }
