@@ -21,33 +21,33 @@ type Chapter = {
 const CHAPTERS: Chapter[] = [
   {
     numeral: 'I',
-    headline: 'The AI advises.',
-    body: 'An LLM is good at deciding what to do and bad at being a safety boundary. So Lyra keeps the model in an advisory seat: it reads intent, picks tools, weighs tradeoffs, and discovers opportunities. It never gets the final word over your funds.',
+    headline: 'The model only proposes.',
+    body: 'A language model is sharp at reading intent and choosing the next move, and weak as a safety boundary. Lyra keeps it advisory — it interprets your goal, picks tools, and surfaces opportunities, but never holds the final word over your funds.',
   },
   {
     numeral: 'II',
-    headline: 'Code enforces.',
-    body: 'Every value-moving action is checked by a pure, unit-tested policy engine first. Hard caps on amounts, recipient and token allowlists, slippage caps, an autonomy tier. No network, no model. A violation blocks the action outright.',
+    headline: 'Move code decides.',
+    body: 'Before value moves, the action clears a deterministic policy written in Move and enforced on Sui: budget and per-transaction caps, coin and recipient allowlists, slippage limits, an autonomy tier. No model, no network in the loop — a breach reverts on-chain.',
   },
   {
     numeral: 'III',
-    headline: 'Simulate before gas.',
-    body: 'A proposed transaction is dry-run with estimateGas and simulateContract before a single unit of gas is spent. A revert aborts the action with a decoded reason, so doomed transactions never reach the chain.',
+    headline: 'Dry-run before gas.',
+    body: 'Every proposed PTB is dry-run against a live Sui fullnode first. A failing effect aborts the action with a decoded reason, so a transaction that would fail never reaches the chain or burns a unit of gas.',
   },
   {
     numeral: 'IV',
-    headline: 'Approval, even under YOLO.',
-    body: 'The approval floor sits beneath the session mode. A material-risk action prompts for human approval even when autonomy is wide open, and is denied outright under strict. Fund controls live in code, not in a prompt the model could talk its way past.',
+    headline: 'Approval sits beneath autonomy.',
+    body: 'The approval floor lives under the session mode. A material-risk action asks for your sign-off even when autonomy is wide open, and is refused outright under strict. The controls live in Move — not in a sentence the model could talk its way past.',
   },
   {
     numeral: 'V',
-    headline: 'Execute and audit.',
-    body: 'Cleared actions broadcast on Sui, wait for the receipt, and return a decision record: the policy verdict, the simulated gas, and the transaction digest. Every step is reconstructable after the fact.',
+    headline: 'Execute, then prove it.',
+    body: 'Cleared actions spend from your on-chain vault, wait for the effects, and return a decision record — the policy verdict, the dry-run, the digest, and a Move ActionReceipt. Memory and receipts persist on Walrus, reconstructable after the fact.',
   },
   {
     numeral: 'VI',
-    headline: 'Real on-chain work.',
-    body: 'Balances and tokens, transfers and SUI moves, trading via Cetus and DeepBook, lending via NAVI and Scallop, and yield discovery via DeFiLlama with risk and RWA-eligibility flags. From the terminal, Telegram, or the web console.',
+    headline: 'Real work across Sui.',
+    body: 'Balances and transfers, swaps routed through Cetus, FlowX, Bluefin and DeepBook, lending on NAVI, Scallop and Suilend, and yield discovery via DefiLlama — driven from the CLI, Telegram, or the web console.',
   },
 ]
 
@@ -227,9 +227,9 @@ function TrioPanel({
           letterSpacing: '-0.025em',
         }}
       >
-        <motion.div style={l1}>The AI advises.</motion.div>
-        <motion.div style={l2}>Code enforces</motion.div>
-        <motion.div style={l3}>the fund controls.</motion.div>
+        <motion.div style={l1}>The model proposes.</motion.div>
+        <motion.div style={l2}>Move on Sui</motion.div>
+        <motion.div style={l3}>enforces every limit.</motion.div>
       </div>
     </motion.div>
   )
@@ -480,9 +480,9 @@ function StackedFallback() {
             letterSpacing: '-0.02em',
           }}
         >
-          <div>The AI advises.</div>
-          <div>Code enforces</div>
-          <div>the fund controls.</div>
+          <div>The model proposes.</div>
+          <div>Move on Sui</div>
+          <div>enforces every limit.</div>
         </div>
         {CHAPTERS.map(ch => (
           <article key={ch.numeral}>

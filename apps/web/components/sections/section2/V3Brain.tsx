@@ -26,9 +26,9 @@ export function V3Brain() {
               Doomed transactions <span className="font-italic-serif italic">never</span> reach gas.
             </motion.h2>
             <p className="max-w-md text-[15px] leading-relaxed text-[var(--color-ink-2)]">
-              Once policy passes, the transaction is dry-run with estimateGas and simulateContract
-              before a single unit of gas is spent. A revert aborts the action with a decoded reason,
-              so the agent finds out it would fail without ever paying for it.
+              Once policy passes, the PTB is dry-run against a live Sui fullnode before a single unit
+              of gas is spent. A failing effect aborts the action with a decoded reason, so the agent
+              finds out it would fail without ever paying for it.
             </p>
           </div>
         </div>
@@ -66,7 +66,7 @@ function EnclaveCard() {
         </div>
 
         <div className="mt-5 space-y-2 border-y border-[var(--color-border)] py-4 text-[12px]">
-          <Row label="method" value="simulateContract" />
+          <Row label="method" value="dryRunTransactionBlock" />
           <Row label="est. gas" value="142,308" />
           <Row label="result" value="would succeed" />
           <Row label="min out" value="0.998 USDC" />
