@@ -3,6 +3,9 @@
  * commands/<name>.
  */
 
+// MUST be first: guards Error.captureStackTrace so navi-sdk's transitive
+// follow-redirects import doesn't crash Bun at startup. See the shim for why.
+import './util/capture-shim'
 import { loadDotenvFile } from './util/dotenv'
 
 // Zero-env-var startup: load `~/.lyra/.env` (e.g. the OPENAI_API_KEY that
@@ -160,6 +163,6 @@ main()
     process.exit(0)
   })
   .catch(e => {
-    console.error('fatal:', (e as Error)?.message ?? e)
+    console.error('fatal:', e instanceof Error ? e.message : e)
     process.exit(1)
   })

@@ -17,6 +17,9 @@
  * nothing — a graceful no-op for unit-test loaders.
  */
 
+// MUST be first: guards Error.captureStackTrace before ./tools/navi pulls in
+// navi-sdk → axios → follow-redirects, which crashes Bun at import otherwise.
+import './capture-shim'
 import type { NativePlugin, ToolDef } from 'lyra-core'
 import { makeAccountInfo, makeSuiBalance } from './tools/balance'
 import { makeCetusQuote } from './tools/cetus'
