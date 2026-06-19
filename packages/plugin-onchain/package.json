@@ -1,6 +1,6 @@
 {
   "name": "lyra-plugin-onchain",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "type": "module",
   "description": "The Sui on-chain tools for Lyra: SUI transfers, DeepBook market data, Walrus receipts/memory \u2014 every write policy-checked, simulated, and recorded on-chain via lyra::policy",
   "license": "MIT",
