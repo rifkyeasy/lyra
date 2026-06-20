@@ -30,9 +30,9 @@
  *   LYRA_TELEGRAM_BOT_TOKEN + LYRA_TELEGRAM_ALLOWED_USER_IDS — enable the TG listener.
  */
 
-import { chmodSync, existsSync, unlinkSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, unlinkSync } from 'node:fs'
 import { hostname } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   acquireScopedLock,
   agentPaths,
@@ -64,11 +64,15 @@ function envOrNull(name: string): string | null {
   return v && v.trim() !== '' ? v.trim() : null
 }
 
-/** Read telegram secrets from the environment (local mode). */
+/** Read telegram secrets from the environment (local mode). Accepts both the
+ * LYRA_TELEGRAM_* names and the TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID names that
+ * `lyra telegram setup` and `lyra` chat use, so the gateway listener starts from
+ * the same env the user already set. */
 function loadLocalTelegramSecrets(): GatewaySecrets | undefined {
-  const botToken = envOrNull('LYRA_TELEGRAM_BOT_TOKEN')
+  const botToken = envOrNull('LYRA_TELEGRAM_BOT_TOKEN') ?? envOrNull('TELEGRAM_BOT_TOKEN')
   if (!botToken) return undefined
-  const allowedRaw = envOrNull('LYRA_TELEGRAM_ALLOWED_USER_IDS') ?? ''
+  const allowedRaw =
+    envOrNull('LYRA_TELEGRAM_ALLOWED_USER_IDS') ?? envOrNull('TELEGRAM_CHAT_ID') ?? ''
   const allowedUserIds = allowedRaw
     .split(',')
     .map(s => Number.parseInt(s.trim(), 10))
@@ -118,8 +122,18 @@ async function buildLocalConfig(agentAddress: string): Promise<RuntimeConfig> {
 }
 
 async function main(): Promise<void> {
-  const agentSecret = envOrNull('LYRA_AGENT_KEY')
-  if (!agentSecret) die('LYRA_AGENT_KEY env var required (suiprivkey1... or base64 seed)')
+  let agentSecret = envOrNull('LYRA_AGENT_KEY')
+  if (!agentSecret) {
+    // Fall back to ~/.lyra/agent.key (written by `lyra init` / `lyra login`) so
+    // the daemon works with a file-based key, not just an env var.
+    const keyFile = join(dirname(agentPaths.config), 'agent.key')
+    if (existsSync(keyFile)) agentSecret = readFileSync(keyFile, 'utf8').trim()
+  }
+  if (!agentSecret) {
+    die(
+      'no agent key: set LYRA_AGENT_KEY or run `lyra init` / `lyra login` (writes ~/.lyra/agent.key)',
+    )
+  }
 
   let agentAddress: string
   try {
