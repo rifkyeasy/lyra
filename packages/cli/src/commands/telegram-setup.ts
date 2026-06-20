@@ -1,14 +1,13 @@
 import { cancel, intro, isCancel, note, outro, password, spinner, text } from '@clack/prompts'
 import { findAndLoadConfig } from '../config/load'
 import { writeConfigTs } from '../config/render'
+import { setDotenvVar } from '../util/dotenv'
 import { fetchBotInfo, looksLikeBotToken, parseAllowedUserIds } from '../util/telegram-secrets'
 
 /**
- * `lyra telegram setup` — validate a bot token and print the env vars to set.
- *
- * On Sui the bot token is NOT stored on disk (there is no operator wallet to
- * encrypt it with). It lives only in the environment, so this command's job is
- * to validate the token + allowlist and hand back the exact `export` lines.
+ * `lyra telegram setup` — validate a bot token, enable the plugin, and persist
+ * the token to `~/.lyra/.env` (0600) so it's loaded automatically by `lyra` chat
+ * AND the `lyra gateway start` daemon — no manual `export` needed.
  */
 export async function runTelegramSetup(): Promise<void> {
   intro('lyra telegram setup')
@@ -65,15 +64,20 @@ export async function runTelegramSetup(): Promise<void> {
     })
   }
 
+  // Persist to ~/.lyra/.env (0600) so both `lyra` and the gateway daemon load the
+  // token automatically — no manual export.
+  const envPath = setDotenvVar('TELEGRAM_BOT_TOKEN', String(token))
+  setDotenvVar('TELEGRAM_USERNAME', info.username)
+  if (chatId) setDotenvVar('TELEGRAM_CHAT_ID', String(chatId))
+
   note(
     [
-      'Set these in your environment (e.g. .env), then run `lyra`:',
+      `Saved to ${envPath} (loaded automatically).`,
+      chatId ? `Allowed user id: ${chatId}` : 'Open access (no allowlist).',
       '',
-      `  export TELEGRAM_BOT_TOKEN=${token}`,
-      `  export TELEGRAM_USERNAME=${info.username}`,
-      ...(chatId
-        ? [`  export TELEGRAM_CHAT_ID=${chatId}`]
-        : ['  # TELEGRAM_CHAT_ID unset = open access']),
+      'Run the bot:',
+      '  lyra                — responds while the chat is open',
+      '  lyra gateway start  — always-on daemon (responds 24/7)',
       '',
       `Then open https://t.me/${info.username} and send any message.`,
     ].join('\n'),

@@ -1,6 +1,6 @@
 {
   "name": "lyra-gateway",
-  "version": "0.1.2",
+  "version": "0.1.6",
   "type": "module",
   "description": "Lyra gateway daemon: the always-on local brain runtime + listeners (Telegram, approvals) for the lyra agent",
   "license": "MIT",
