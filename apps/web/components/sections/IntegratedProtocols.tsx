@@ -23,6 +23,7 @@ const PROTOCOLS: Node[] = [
   { name: 'Scallop', logo: '/protocols/scallop.jpg' },
   { name: 'NAVI', logo: '/protocols/navi.jpg' },
   { name: 'Suilend', logo: '/protocols/suilend.png' },
+  { name: 'Volo', logo: '/protocols/volo.webp' },
   { name: '7k Aggregator', logo: '/protocols/sevenk.jpg' },
 ]
 

@@ -1,5 +1,5 @@
-import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import { describe, expect, it } from 'bun:test'
+import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import {
   InMemoryLinkStore,
   completeLink,
@@ -38,7 +38,9 @@ describe('telegram link', () => {
   })
 
   it('rejects a garbage signature', async () => {
-    expect(await verifyLink({ telegramUserId: 1, nonce: makeNonce(), signature: 'not-a-sig' })).toBeNull()
+    expect(
+      await verifyLink({ telegramUserId: 1, nonce: makeNonce(), signature: 'not-a-sig' }),
+    ).toBeNull()
   })
 
   it('binds the owner via the store round-trip', async () => {

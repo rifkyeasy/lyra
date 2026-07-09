@@ -446,7 +446,9 @@ export class TelegramListener {
         return true
       }
       const agent = this.opts.resolveAgentAddress?.(owner) ?? null
-      await reply(`owner ${owner.slice(0, 10)}…${owner.slice(-6)}\nagent ${agent ? `${agent.slice(0, 12)}…` : '(not resolved)'}`)
+      await reply(
+        `owner ${owner.slice(0, 10)}…${owner.slice(-6)}\nagent ${agent ? `${agent.slice(0, 12)}…` : '(not resolved)'}`,
+      )
       return true
     }
     return false

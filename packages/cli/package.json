@@ -1,6 +1,6 @@
 {
   "name": "lyra-ai-agent",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "description": "lyra CLI: a Sui-native, policy-bound AI finance agent. Real on-chain work gated by deterministic policy, simulation, and approval",
   "license": "MIT",
@@ -13,29 +13,14 @@
   "bugs": {
     "url": "https://github.com/rifkyeasy/lyra/issues"
   },
-  "keywords": [
-    "lyra",
-    "ai",
-    "agent",
-    "cli",
-    "tui",
-    "sui",
-    "walrus",
-    "deepbook",
-    "defi"
-  ],
+  "keywords": ["lyra", "ai", "agent", "cli", "tui", "sui", "walrus", "deepbook", "defi"],
   "publishConfig": {
     "access": "public"
   },
   "engines": {
     "bun": ">=1.1"
   },
-  "files": [
-    "src",
-    "!src/**/*.test.ts",
-    "bin",
-    "README.md"
-  ],
+  "files": ["src", "!src/**/*.test.ts", "bin", "README.md"],
   "bin": {
     "lyra": "bin/lyra"
   },
@@ -52,7 +37,7 @@
     "@opentui/solid": "^0.1.97",
     "lyra-core": "^0.1.2",
     "lyra-gateway": "^0.1.6",
-    "lyra-plugin-onchain": "^0.1.7",
+    "lyra-plugin-onchain": "^0.1.8",
     "lyra-plugin-system": "^0.1.2",
     "lyra-plugin-telegram": "^0.1.2",
     "picocolors": "^1.1.1",

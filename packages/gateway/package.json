@@ -13,26 +13,14 @@
   "bugs": {
     "url": "https://github.com/rifkyeasy/lyra/issues"
   },
-  "keywords": [
-    "lyra",
-    "ai",
-    "agent",
-    "gateway",
-    "daemon",
-    "sui"
-  ],
+  "keywords": ["lyra", "ai", "agent", "gateway", "daemon", "sui"],
   "publishConfig": {
     "access": "public"
   },
   "engines": {
     "bun": ">=1.1"
   },
-  "files": [
-    "src",
-    "!src/**/*.test.ts",
-    "bin",
-    "README.md"
-  ],
+  "files": ["src", "!src/**/*.test.ts", "bin", "README.md"],
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "bin": {

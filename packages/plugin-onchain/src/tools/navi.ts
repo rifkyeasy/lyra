@@ -126,7 +126,12 @@ async function runNaviWrite(
   // repay/supply move SUI out). Withdraw pulls the agent's own funds back.
   if (ctx.policy && kind !== 'withdraw') {
     const verdict = evaluatePolicy(
-      { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: kind === 'borrow' ? 'borrow' : 'navi' },
+      {
+        kind: 'transfer',
+        coinType: SUI_TYPE,
+        amountMist,
+        protocol: kind === 'borrow' ? 'borrow' : 'navi',
+      },
       ctx.policy,
     )
     if (!verdict.allowed)
