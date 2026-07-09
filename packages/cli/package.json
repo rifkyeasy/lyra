@@ -1,6 +1,6 @@
 {
   "name": "lyra-ai-agent",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "type": "module",
   "description": "lyra CLI: a Sui-native, policy-bound AI finance agent. Real on-chain work gated by deterministic policy, simulation, and approval",
   "license": "MIT",
@@ -37,7 +37,7 @@
     "@opentui/solid": "^0.1.97",
     "lyra-core": "^0.1.2",
     "lyra-gateway": "^0.1.6",
-    "lyra-plugin-onchain": "^0.1.8",
+    "lyra-plugin-onchain": "^0.1.9",
     "lyra-plugin-system": "^0.1.2",
     "lyra-plugin-telegram": "^0.1.2",
     "picocolors": "^1.1.1",
