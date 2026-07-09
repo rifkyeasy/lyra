@@ -102,15 +102,7 @@ export const metadata: Metadata = {
     title: 'Lyra AI — verifiable autonomy for on-chain treasuries on Sui',
     description:
       'The AI advises. Deterministic code enforces the fund controls. Real on-chain work on Sui, gated by policy, simulation, and approval.',
-    images: [
-      {
-        url: '/og-image.jpg',
-        width: 1200,
-        height: 800,
-        type: 'image/jpeg',
-        alt: 'Lyra — a policy-aware AI treasury agent on Sui',
-      },
-    ],
+    // og:image comes from app/opengraph-image.tsx (code-generated).
   },
   twitter: {
     card: 'summary_large_image',
@@ -119,7 +111,7 @@ export const metadata: Metadata = {
     title: 'Lyra AI — verifiable autonomy for on-chain treasuries on Sui',
     description:
       'The AI advises. Deterministic code enforces the fund controls. Real on-chain work on Sui, gated by policy, simulation, and approval.',
-    images: ['/og-image.jpg'],
+    // twitter:image inherits the generated app/opengraph-image.tsx.
   },
   alternates: {
     canonical: '/',
