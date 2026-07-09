@@ -37,10 +37,8 @@ import {
 import { makePolicyCreate, makePolicyShow } from './tools/policy'
 import { makeProtocolsList } from './tools/protocols'
 import {
-  makeScallopBorrow,
   makeScallopMarkets,
   makeScallopPosition,
-  makeScallopRepay,
   makeScallopSupply,
   makeScallopWithdraw,
 } from './tools/scallop'
@@ -105,8 +103,6 @@ const plugin: NativePlugin = {
     ctx.registerTool(makeScallopPosition(onchain) as ToolDef)
     ctx.registerTool(makeScallopSupply(onchain) as ToolDef)
     ctx.registerTool(makeScallopWithdraw(onchain) as ToolDef)
-    ctx.registerTool(makeScallopBorrow(onchain) as ToolDef)
-    ctx.registerTool(makeScallopRepay(onchain) as ToolDef)
     ctx.registerTool(makeNaviMarkets(onchain) as ToolDef)
     ctx.registerTool(makeNaviPosition(onchain) as ToolDef)
     ctx.registerTool(makeNaviSupply(onchain) as ToolDef)

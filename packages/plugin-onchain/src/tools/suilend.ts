@@ -57,19 +57,31 @@ function isSuiType(t: string): boolean {
   return t === SUI_TYPE || t === SUI_LONG
 }
 
-/** The agent's obligation cap + id, or null if it has no Suilend position yet. */
+/** The agent's obligation cap + id, or null if it has no Suilend position yet.
+ *  Retries: getObligationOwnerCaps reads owned objects + their BCS, which some
+ *  fullnode replicas serve inconsistently right after a write ("invalid data
+ *  type" / stale owned-object index) — a short retry rides out that lag. */
 async function findObligation(
   ctx: OnchainRuntimeContext,
 ): Promise<{ capId: string; obligationId: string } | null> {
-  const caps = await SuilendClient.getObligationOwnerCaps(
-    ctx.agentAddress,
-    [LENDING_MARKET_TYPE],
-    ctx.client as never,
-  )
-  if (!caps.length) return null
-  const c = caps[0] as { id: unknown; obligationId: string | { id: string } }
-  const obligationId = typeof c.obligationId === 'string' ? c.obligationId : c.obligationId.id
-  return { capId: capObjectId(c), obligationId }
+  let lastErr: unknown
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const caps = await SuilendClient.getObligationOwnerCaps(
+        ctx.agentAddress,
+        [LENDING_MARKET_TYPE],
+        ctx.client as never,
+      )
+      if (!caps.length) return null
+      const c = caps[0] as { id: unknown; obligationId: string | { id: string } }
+      const obligationId = typeof c.obligationId === 'string' ? c.obligationId : c.obligationId.id
+      return { capId: capObjectId(c), obligationId }
+    } catch (e) {
+      lastErr = e
+      await new Promise(r => setTimeout(r, 1200))
+    }
+  }
+  throw lastErr
 }
 
 // --- suilend.supply --------------------------------------------------------
@@ -78,6 +90,43 @@ const AmountSchema = z.object({
   amount: z.string().min(1).describe('Amount of SUI, e.g. "1.5".'),
 })
 type AmountArgs = z.infer<typeof AmountSchema>
+
+// Borrowable/repayable assets. Suilend (like most money markets) forbids
+// borrowing the SAME asset you post as collateral (obligation::borrow abort 8),
+// so the canonical flow is "supply SUI → borrow a stablecoin". USDC is the
+// default; SUI is available for the reverse (supply a stable, borrow SUI).
+const USDC_TYPE = '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC'
+type CoinInfo = { type: string; decimals: number; minBase: bigint; label: string }
+const BORROW_COINS: Record<'usdc' | 'sui', CoinInfo> = {
+  usdc: { type: USDC_TYPE, decimals: 6, minBase: 100_000n, label: 'USDC' }, // 0.1 USDC
+  sui: { type: SUI_TYPE, decimals: 9, minBase: 10_000_000n, label: 'SUI' }, // 0.01 SUI
+}
+
+/** Parse a decimal amount into base units for a given decimals count. */
+function toBaseUnits(amount: string, decimals: number): bigint | undefined {
+  const a = amount.trim()
+  if (!/^\d+(\.\d+)?$/.test(a)) return undefined
+  const dot = a.indexOf('.')
+  const whole = dot === -1 ? a : a.slice(0, dot)
+  const frac = dot === -1 ? '' : a.slice(dot + 1)
+  const fracPadded = (frac + '0'.repeat(decimals)).slice(0, decimals)
+  try {
+    return BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(fracPadded || '0')
+  } catch {
+    return undefined
+  }
+}
+
+const BorrowSchema = z.object({
+  amount: z.string().min(1).describe('Amount to borrow/repay, e.g. "5".'),
+  coin: z
+    .enum(['usdc', 'sui'])
+    .optional()
+    .describe(
+      'Asset to borrow/repay (default "usdc"). Suilend disallows borrowing the same asset you supply as collateral, so borrowing USDC against SUI collateral is the canonical flow.',
+    ),
+})
+type BorrowArgs = z.infer<typeof BorrowSchema>
 
 export function makeSuilendSupply(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
   return {
@@ -217,24 +266,25 @@ export function makeSuilendWithdraw(ctx: OnchainRuntimeContext): ToolDef<AmountA
 
 // --- suilend.borrow --------------------------------------------------------
 
-export function makeSuilendBorrow(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
+export function makeSuilendBorrow(ctx: OnchainRuntimeContext): ToolDef<BorrowArgs> {
   return {
     name: 'suilend.borrow',
     description:
-      'Borrow SUI from Suilend against supplied collateral (amount in underlying SUI). Requires an existing obligation with enough health; the pre-flight simulation fails cleanly if under-collateralized. Policy-checked, simulated, then executed.',
-    searchHint: 'suilend borrow loan leverage debt against collateral sui money market',
-    schema: AmountSchema,
+      'Borrow an asset from Suilend against supplied collateral. Default borrows USDC against SUI collateral (Suilend disallows same-asset borrows). Requires an existing obligation with enough health; the pre-flight simulation fails cleanly if under-collateralized. Policy-checked, simulated, then executed.',
+    searchHint: 'suilend borrow loan leverage debt against collateral usdc stablecoin money market',
+    schema: BorrowSchema,
     handler: async args => {
       const err = ensureMainnet(ctx)
       if (err) return { ok: false, error: err }
-      const amountMist = suiToMist(args.amount)
-      if (amountMist === undefined || amountMist <= 0n)
+      const coin = BORROW_COINS[args.coin ?? 'usdc']
+      const amountBase = toBaseUnits(args.amount, coin.decimals)
+      if (amountBase === undefined || amountBase <= 0n)
         return { ok: false, error: `invalid amount "${args.amount}"` }
-      const tooSmall = checkMinimum('borrow', amountMist)
-      if (tooSmall) return { ok: false, error: tooSmall }
+      if (amountBase < coin.minBase)
+        return { ok: false, error: `amount too small: below the minimum ${coin.label} borrow` }
       if (ctx.policy) {
         const verdict = evaluatePolicy(
-          { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'borrow' },
+          { kind: 'transfer', coinType: coin.type, amountMist: amountBase, protocol: 'borrow' },
           ctx.policy,
         )
         if (!verdict.allowed)
@@ -252,8 +302,8 @@ export function makeSuilendBorrow(ctx: OnchainRuntimeContext): ToolDef<AmountArg
           ctx.agentAddress,
           obligation.capId,
           obligation.obligationId,
-          SUI_TYPE,
-          amountMist.toString(),
+          coin.type,
+          amountBase.toString(),
           tx as never,
         )
         const sim = await simulate(ctx.client, tx, ctx.agentAddress)
@@ -274,7 +324,8 @@ export function makeSuilendBorrow(ctx: OnchainRuntimeContext): ToolDef<AmountArg
           data: {
             protocol: 'suilend',
             action: 'borrow',
-            amountSui: args.amount,
+            amount: args.amount,
+            coin: coin.label,
             digest: res.digest,
             policyEnforced: ctx.policy != null,
           },
@@ -288,22 +339,23 @@ export function makeSuilendBorrow(ctx: OnchainRuntimeContext): ToolDef<AmountArg
 
 // --- suilend.repay ---------------------------------------------------------
 
-export function makeSuilendRepay(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
+export function makeSuilendRepay(ctx: OnchainRuntimeContext): ToolDef<BorrowArgs> {
   return {
     name: 'suilend.repay',
     description:
-      'Repay borrowed SUI debt on Suilend (amount in underlying SUI). Simulated, then executed.',
-    searchHint: 'suilend repay pay back debt loan close sui money market',
-    schema: AmountSchema,
+      'Repay borrowed debt on Suilend (default USDC; pass coin "sui" to repay a SUI loan). Simulated, then executed.',
+    searchHint: 'suilend repay pay back debt loan close usdc stablecoin sui money market',
+    schema: BorrowSchema,
     handler: async args => {
       const err = ensureMainnet(ctx)
       if (err) return { ok: false, error: err }
-      const amountMist = suiToMist(args.amount)
-      if (amountMist === undefined || amountMist <= 0n)
+      const coin = BORROW_COINS[args.coin ?? 'usdc']
+      const amountBase = toBaseUnits(args.amount, coin.decimals)
+      if (amountBase === undefined || amountBase <= 0n)
         return { ok: false, error: `invalid amount "${args.amount}"` }
       if (ctx.policy) {
         const verdict = evaluatePolicy(
-          { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'suilend' },
+          { kind: 'transfer', coinType: coin.type, amountMist: amountBase, protocol: 'suilend' },
           ctx.policy,
         )
         if (!verdict.allowed)
@@ -318,8 +370,8 @@ export function makeSuilendRepay(ctx: OnchainRuntimeContext): ToolDef<AmountArgs
         await suilend.repayIntoObligation(
           ctx.agentAddress,
           obligation.obligationId,
-          SUI_TYPE,
-          amountMist.toString(),
+          coin.type,
+          amountBase.toString(),
           tx as never,
         )
         const sim = await simulate(ctx.client, tx, ctx.agentAddress)
@@ -340,7 +392,8 @@ export function makeSuilendRepay(ctx: OnchainRuntimeContext): ToolDef<AmountArgs
           data: {
             protocol: 'suilend',
             action: 'repay',
-            amountSui: args.amount,
+            amount: args.amount,
+            coin: coin.label,
             digest: res.digest,
           },
         }

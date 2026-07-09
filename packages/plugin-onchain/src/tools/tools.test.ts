@@ -15,7 +15,7 @@ import type { PluginContext, ToolDef } from 'lyra-core'
 import plugin from '../index'
 import type { OnchainRuntimeContext } from '../types'
 import { makeVoloStake } from './liquid-stake'
-import { makeScallopBorrow, makeScallopRepay } from './scallop'
+import { makeNaviBorrow, makeNaviRepay } from './navi'
 import { makeSuilendBorrow, makeSuilendSupply } from './suilend'
 
 // A context whose network/amount guards resolve before any client access.
@@ -56,8 +56,6 @@ describe('onchain plugin registration', () => {
       // lending: the three biggest Sui money markets, full CRUD
       'scallop.supply',
       'scallop.withdraw',
-      'scallop.borrow',
-      'scallop.repay',
       'navi.supply',
       'navi.borrow',
       'navi.repay',
@@ -112,8 +110,8 @@ describe('write-tool guards (fail before network)', () => {
     if (!res.ok) expect(res.error).toContain('amount too small')
   })
 
-  test('scallop.borrow rejects a dust amount', async () => {
-    const res = await makeScallopBorrow(stubCtx()).handler({ amount: '0.001' })
+  test('navi.borrow rejects a dust amount', async () => {
+    const res = await makeNaviBorrow(stubCtx()).handler({ amount: '0.001' })
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toContain('amount too small')
   })
@@ -134,9 +132,9 @@ describe('write-tool guards (fail before network)', () => {
     if (!stake.ok) expect(stake.error).toContain('mainnet only')
   })
 
-  test('scallop.repay is a registered, well-formed tool', () => {
-    const tool = makeScallopRepay(stubCtx())
-    expect(tool.name).toBe('scallop.repay')
+  test('navi.repay is a registered, well-formed tool', () => {
+    const tool = makeNaviRepay(stubCtx())
+    expect(tool.name).toBe('navi.repay')
     expect(typeof tool.handler).toBe('function')
   })
 })

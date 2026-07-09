@@ -51,16 +51,9 @@ export const PROTOCOLS: ProtocolCapability[] = [
     category: 'lending',
     read: true,
     execute: true,
-    tools: [
-      'scallop.markets',
-      'scallop.position',
-      'scallop.supply',
-      'scallop.withdraw',
-      'scallop.borrow',
-      'scallop.repay',
-    ],
+    tools: ['scallop.markets', 'scallop.position', 'scallop.supply', 'scallop.withdraw'],
     llamaProjects: ['scallop-lending', 'scallop'],
-    note: 'full supply / withdraw / borrow / repay',
+    note: 'supply / withdraw lending yield (borrow/repay via NAVI or Suilend)',
   },
   {
     id: 'navi',

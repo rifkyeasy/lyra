@@ -129,32 +129,30 @@ const AmountSchema = z.object({
 })
 type AmountArgs = z.infer<typeof AmountSchema>
 
+// Scallop redeems a MARKET-COIN amount on withdraw (not underlying SUI). We
+// find the agent's SUI market coin by type pattern (robust to package upgrades).
+const MARKET_COIN_SUI_RE = /::reserve::MarketCoin<0x0*2::sui::SUI>$/
+
 async function runScallopWrite(
   ctx: OnchainRuntimeContext,
   amount: string,
-  kind: 'supply' | 'withdraw' | 'borrow' | 'repay',
+  kind: 'supply' | 'withdraw',
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
   const err = ensureMainnet(ctx)
   if (err) return { ok: false, error: err }
   const amountMist = suiToMist(amount)
   if (amountMist === undefined || amountMist <= 0n)
     return { ok: false, error: `invalid amount "${amount}"` }
-  // Minimum guard for value-moving actions (withdraw pulls the agent's own funds).
-  const minAction = kind === 'borrow' ? 'borrow' : kind === 'withdraw' ? null : 'supply'
-  if (minAction) {
-    const tooSmall = checkMinimum(minAction, amountMist)
+  // Minimum guard on supply (withdraw pulls the agent's own funds back).
+  if (kind === 'supply') {
+    const tooSmall = checkMinimum('supply', amountMist)
     if (tooSmall) return { ok: false, error: tooSmall }
   }
 
-  // Policy gate on value-moving actions (borrow creates debt + hands out funds).
-  if (ctx.policy && kind !== 'withdraw') {
+  // Policy gate on the value-moving supply.
+  if (ctx.policy && kind === 'supply') {
     const verdict = evaluatePolicy(
-      {
-        kind: 'transfer',
-        coinType: SUI_TYPE,
-        amountMist,
-        protocol: kind === 'borrow' ? 'borrow' : 'scallop',
-      },
+      { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'scallop' },
       ctx.policy,
     )
     if (!verdict.allowed)
@@ -166,15 +164,34 @@ async function runScallopWrite(
     const builder = await sdk.createScallopBuilder()
     const tx = builder.createTxBlock()
     tx.setSender(ctx.agentAddress)
-    // *Quick helpers auto-select the user's coins/obligation. supply/withdraw and
-    // borrow return a coin to hand back; repay consumes coins. depositQuick's 3rd
-    // arg returnSCoin=false keeps the old market-coin standard (withdrawQuick
-    // redeems it; the new sCoin standard → "No valid coins").
+    // depositQuick's 3rd arg returnSCoin=false keeps the old market-coin standard.
     let out: unknown
-    if (kind === 'supply') out = await tx.depositQuick(Number(amountMist), 'sui', false)
-    else if (kind === 'withdraw') out = await tx.withdrawQuick(Number(amountMist), 'sui')
-    else if (kind === 'borrow') out = await tx.borrowQuick(Number(amountMist), 'sui')
-    else await tx.repayQuick(Number(amountMist), 'sui')
+    if (kind === 'supply') {
+      out = await tx.depositQuick(Number(amountMist), 'sui', false)
+    } else {
+      // withdrawQuick redeems a MARKET-COIN amount, not underlying SUI. Convert
+      // the requested SUI to market coins at the position's rate and clamp to the
+      // held balance, so a full/over-withdraw cleanly redeems everything.
+      const [balances, q] = await Promise.all([
+        ctx.client.getAllBalances({ owner: ctx.agentAddress }),
+        sdk.createScallopQuery().then(async query => {
+          await query.init()
+          return query
+        }),
+      ])
+      const mc = balances.find(b => MARKET_COIN_SUI_RE.test(b.coinType))
+      const heldMc = BigInt(mc?.totalBalance ?? '0')
+      if (heldMc <= 0n) return { ok: false, error: 'no Scallop SUI position to withdraw' }
+      const port = (await q.getUserPortfolio({ walletAddress: ctx.agentAddress })) as {
+        lendings?: Array<{ coinName?: string; suppliedCoin?: number }>
+      }
+      const supplied = (port.lendings ?? []).find(l => l.coinName === 'sui')?.suppliedCoin ?? 0
+      const suppliedMist = BigInt(Math.floor(supplied * 1e9))
+      // redeem = requested/rate, where rate = supplied/heldMc; clamp to heldMc.
+      let redeemMc = suppliedMist > 0n ? (amountMist * heldMc) / suppliedMist : heldMc
+      if (redeemMc > heldMc || redeemMc <= 0n) redeemMc = heldMc
+      out = await tx.withdrawQuick(Number(redeemMc), 'sui')
+    }
     if (out) tx.transferObjects([out as never], ctx.agentAddress)
     const transaction = tx.txBlock
 
@@ -229,23 +246,8 @@ export function makeScallopWithdraw(ctx: OnchainRuntimeContext): ToolDef<AmountA
   }
 }
 
-export function makeScallopBorrow(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
-  return {
-    name: 'scallop.borrow',
-    description:
-      'Borrow SUI from Scallop against supplied collateral. Requires an existing supply position with enough health; the pre-flight simulation fails cleanly if under-collateralized. Policy-checked, simulated, then executed.',
-    searchHint: 'scallop borrow loan leverage debt against collateral sui',
-    schema: AmountSchema,
-    handler: async args => runScallopWrite(ctx, args.amount, 'borrow'),
-  }
-}
-
-export function makeScallopRepay(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
-  return {
-    name: 'scallop.repay',
-    description: 'Repay borrowed SUI debt on Scallop. Simulated, then executed.',
-    searchHint: 'scallop repay pay back debt loan close sui',
-    schema: AmountSchema,
-    handler: async args => runScallopWrite(ctx, args.amount, 'repay'),
-  }
-}
+// NOTE: Scallop borrow/repay require opening a Scallop obligation + posting
+// collateral (a separate flow from lending deposits — borrowQuick alone aborts
+// "No obligation found"). Until that flow is wired, borrowing routes through the
+// verified NAVI/Suilend adapters instead, so we don't ship a borrow tool here
+// that can't execute.
