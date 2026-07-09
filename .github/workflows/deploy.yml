@@ -34,8 +34,10 @@ jobs:
             set -e
             cd ~/lyra
             git fetch origin "$BRANCH"
-            # Check out + hard-reset to the pushed branch (idempotent; survives
-            # force-pushes). .env files are gitignored, so they're untouched.
-            git checkout -B "$BRANCH" "origin/$BRANCH"
+            # Force checkout + hard-reset to the pushed branch: -f discards local
+            # tracked changes (e.g. bun.lock rewritten by the VPS's own install),
+            # idempotent + survives force-pushes. .env files are gitignored, so
+            # they're never touched.
+            git checkout -f -B "$BRANCH" "origin/$BRANCH"
             git reset --hard "origin/$BRANCH"
             bash scripts/deploy-vps.sh
