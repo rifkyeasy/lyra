@@ -31,9 +31,6 @@ interface ToolSchema {
 
 // Lending + staking + read discovery. (sui.send/swap stay on the vault-backed
 // card flow; account.info/sui.balance/policy.*/walrus.store have web equivalents.)
-// Suilend is intentionally excluded on the web: @suilend/sdk's ESM has a
-// directory import Node's resolver rejects, and the web runs on Node (the CLI
-// runs on Bun, which tolerates it — so Suilend stays available there).
 const WEB_TOOLS = new Set<string>([
   'scallop.markets',
   'scallop.position',
@@ -45,6 +42,11 @@ const WEB_TOOLS = new Set<string>([
   'navi.withdraw',
   'navi.borrow',
   'navi.repay',
+  'suilend.position',
+  'suilend.supply',
+  'suilend.withdraw',
+  'suilend.borrow',
+  'suilend.repay',
   'sui.stake',
   'sui.unstake',
   'volo.stake',

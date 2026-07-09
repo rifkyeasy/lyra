@@ -14,7 +14,7 @@
 
 import { describe, expect, test } from 'bun:test'
 import { Transaction } from '@mysten/sui/transactions'
-import { LENDING_MARKET_ID, LENDING_MARKET_TYPE, SuilendClient } from '@suilend/sdk'
+import { LENDING_MARKET_ID, LENDING_MARKET_TYPE, SuilendClient } from '@suilend/sdk/client'
 import { stakeTovSuiPTB } from 'navi-sdk'
 import { keypairFromSecret, makeSuiClient } from '../client'
 import type { OnchainRuntimeContext } from '../types'
