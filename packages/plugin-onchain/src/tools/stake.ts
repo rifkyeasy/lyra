@@ -31,7 +31,7 @@ async function resolveValidator(
   // biome-ignore lint/suspicious/noExplicitAny: SuiSystemState validator fields
   const vals = (state.activeValidators ?? []) as any[]
   if (vals.length === 0) return null
-  if (want && want.trim()) {
+  if (want?.trim()) {
     const w = want.trim().toLowerCase()
     const m = vals.find(
       v => String(v.suiAddress).toLowerCase() === w || String(v.name ?? '').toLowerCase() === w,
@@ -100,7 +100,10 @@ export function makeStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
           options: { showEffects: true, showObjectChanges: true },
         })
         if (res.effects?.status?.status !== 'success') {
-          return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
+          return {
+            ok: false,
+            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
+          }
         }
         await ctx.client.waitForTransaction({ digest: res.digest })
         const staked = res.objectChanges?.find(
@@ -181,7 +184,10 @@ export function makeUnstake(ctx: OnchainRuntimeContext): ToolDef<UnstakeArgs> {
           options: { showEffects: true },
         })
         if (res.effects?.status?.status !== 'success') {
-          return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
+          return {
+            ok: false,
+            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
+          }
         }
         await ctx.client.waitForTransaction({ digest: res.digest })
 

@@ -31,6 +31,7 @@ export const DEFAULT_ALLOWED_PROTOCOLS = [
   'deepbook',
   'scallop',
   'navi',
+  'suilend',
   'walrus',
 ]
 

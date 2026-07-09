@@ -132,22 +132,29 @@ type AmountArgs = z.infer<typeof AmountSchema>
 async function runScallopWrite(
   ctx: OnchainRuntimeContext,
   amount: string,
-  kind: 'supply' | 'withdraw',
+  kind: 'supply' | 'withdraw' | 'borrow' | 'repay',
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
   const err = ensureMainnet(ctx)
   if (err) return { ok: false, error: err }
   const amountMist = suiToMist(amount)
   if (amountMist === undefined || amountMist <= 0n)
     return { ok: false, error: `invalid amount "${amount}"` }
-  if (kind === 'supply') {
-    const tooSmall = checkMinimum('supply', amountMist)
+  // Minimum guard for value-moving actions (withdraw pulls the agent's own funds).
+  const minAction = kind === 'borrow' ? 'borrow' : kind === 'withdraw' ? null : 'supply'
+  if (minAction) {
+    const tooSmall = checkMinimum(minAction, amountMist)
     if (tooSmall) return { ok: false, error: tooSmall }
   }
 
-  // Policy gate (deterministic). Supplying moves funds out; withdrawing back in.
-  if (ctx.policy && kind === 'supply') {
+  // Policy gate on value-moving actions (borrow creates debt + hands out funds).
+  if (ctx.policy && kind !== 'withdraw') {
     const verdict = evaluatePolicy(
-      { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'scallop' },
+      {
+        kind: 'transfer',
+        coinType: SUI_TYPE,
+        amountMist,
+        protocol: kind === 'borrow' ? 'borrow' : 'scallop',
+      },
       ctx.policy,
     )
     if (!verdict.allowed)
@@ -159,15 +166,16 @@ async function runScallopWrite(
     const builder = await sdk.createScallopBuilder()
     const tx = builder.createTxBlock()
     tx.setSender(ctx.agentAddress)
-    // deposit/withdraw auto-select the user's coins and return the resulting
-    // coin to hand back to the owner. depositQuick's 3rd arg returnSCoin=false
-    // keeps the old market-coin standard, which withdrawQuick can redeem (the
-    // new sCoin standard is not found by withdrawQuick → "No valid coins").
-    const out =
-      kind === 'supply'
-        ? await tx.depositQuick(Number(amountMist), 'sui', false)
-        : await tx.withdrawQuick(Number(amountMist), 'sui')
-    if (out) tx.transferObjects([out], ctx.agentAddress)
+    // *Quick helpers auto-select the user's coins/obligation. supply/withdraw and
+    // borrow return a coin to hand back; repay consumes coins. depositQuick's 3rd
+    // arg returnSCoin=false keeps the old market-coin standard (withdrawQuick
+    // redeems it; the new sCoin standard → "No valid coins").
+    let out: unknown
+    if (kind === 'supply') out = await tx.depositQuick(Number(amountMist), 'sui', false)
+    else if (kind === 'withdraw') out = await tx.withdrawQuick(Number(amountMist), 'sui')
+    else if (kind === 'borrow') out = await tx.borrowQuick(Number(amountMist), 'sui')
+    else await tx.repayQuick(Number(amountMist), 'sui')
+    if (out) tx.transferObjects([out as never], ctx.agentAddress)
     const transaction = tx.txBlock
 
     const sim = await simulate(ctx.client, transaction, ctx.agentAddress)
@@ -218,5 +226,26 @@ export function makeScallopWithdraw(ctx: OnchainRuntimeContext): ToolDef<AmountA
     searchHint: 'scallop withdraw redeem unlend remove sui',
     schema: AmountSchema,
     handler: async args => runScallopWrite(ctx, args.amount, 'withdraw'),
+  }
+}
+
+export function makeScallopBorrow(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
+  return {
+    name: 'scallop.borrow',
+    description:
+      'Borrow SUI from Scallop against supplied collateral. Requires an existing supply position with enough health; the pre-flight simulation fails cleanly if under-collateralized. Policy-checked, simulated, then executed.',
+    searchHint: 'scallop borrow loan leverage debt against collateral sui',
+    schema: AmountSchema,
+    handler: async args => runScallopWrite(ctx, args.amount, 'borrow'),
+  }
+}
+
+export function makeScallopRepay(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
+  return {
+    name: 'scallop.repay',
+    description: 'Repay borrowed SUI debt on Scallop. Simulated, then executed.',
+    searchHint: 'scallop repay pay back debt loan close sui',
+    schema: AmountSchema,
+    handler: async args => runScallopWrite(ctx, args.amount, 'repay'),
   }
 }

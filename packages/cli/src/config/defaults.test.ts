@@ -38,6 +38,7 @@ describe('config defaults (zero-env-var)', () => {
       'deepbook',
       'scallop',
       'navi',
+      'suilend',
       'walrus',
     ])
   })
@@ -69,7 +70,7 @@ describe('config defaults (zero-env-var)', () => {
     expect(env.LYRA_POLICY_MAX_SLIPPAGE_BPS).toBe('100')
     expect(env.LYRA_POLICY_ALLOWED_COINS).toBe('0x2::sui::SUI')
     expect(env.LYRA_POLICY_ALLOWED_PROTOCOLS).toBe(
-      'transfer,swap,stake,borrow,deepbook,scallop,navi,walrus',
+      'transfer,swap,stake,borrow,deepbook,scallop,navi,suilend,walrus',
     )
   })
 

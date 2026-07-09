@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 /**
  * lyra-plugin-telegram
  *
@@ -16,8 +18,6 @@
  * unit-test loaders).
  */
 import type { NativePlugin } from 'lyra-core'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { FileLinkStore, deriveAgentAddress } from './link'
 import { TelegramListener, type TelegramListenerOpts } from './listener'
 import type { TelegramRuntimeContext } from './types'
