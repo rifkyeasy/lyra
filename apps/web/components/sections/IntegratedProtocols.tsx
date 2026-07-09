@@ -6,7 +6,7 @@
 // fully invisible. The bottom of the image is masked so it doesn't look hard-cut.
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import Image from 'next/image'
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 type Node = { name: string; logo: string; big?: boolean }
 
@@ -27,14 +27,17 @@ const PROTOCOLS: Node[] = [
   { name: '7k Aggregator', logo: '/protocols/sevenk.jpg' },
 ]
 
-// Semicircle (in %) that traces the portal arc. Tune cx/cy/rx/ry to match.
-const ARC = { cx: 50, cy: 80, rx: 40, ry: 48 }
+// Semicircle (in %) that traces the portal arc. On phones the arc is steeper
+// (bigger ry) and a touch wider (bigger rx) so 13 nodes get more vertical +
+// horizontal separation instead of crowding into an overlapping cluster.
+const ARC_DESKTOP = { cx: 50, cy: 80, rx: 40, ry: 48 }
+const ARC_MOBILE = { cx: 50, cy: 82, rx: 44, ry: 62 }
 const A_LEFT = (170 * Math.PI) / 180
 const A_RIGHT = (10 * Math.PI) / 180
-function arcPos(i: number, n: number) {
+function arcPos(i: number, n: number, arc: typeof ARC_DESKTOP) {
   const t = n <= 1 ? 0.5 : i / (n - 1)
   const theta = A_LEFT + (A_RIGHT - A_LEFT) * t
-  return { x: ARC.cx + ARC.rx * Math.cos(theta), y: ARC.cy - ARC.ry * Math.sin(theta) }
+  return { x: arc.cx + arc.rx * Math.cos(theta), y: arc.cy - arc.ry * Math.sin(theta) }
 }
 
 // Deterministic faint starfield (index-derived → no hydration mismatch).
@@ -50,21 +53,54 @@ export function IntegratedProtocols() {
   const ref = useRef<HTMLDivElement>(null)
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end end'] })
 
-  // Scroll → zoom: the constellation grows from a distant cluster to full spread,
-  // emerging from fully invisible, while the starfield drifts (parallax).
-  const fieldScale = useTransform(scrollYProgress, [0, 0.62], [0.4, 1])
-  const fieldOpacity = useTransform(scrollYProgress, [0, 0.06, 0.28, 0.92, 1], [0, 0, 1, 1, 0.85])
+  // Narrow-viewport arc, measured after mount (starts desktop to match SSR, so
+  // no hydration mismatch; the field is invisible until scrolled in, so the
+  // one-frame correction never flashes).
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const m = () => setNarrow(window.innerWidth < 640)
+    m()
+    window.addEventListener('resize', m)
+    return () => window.removeEventListener('resize', m)
+  }, [])
+  const arc = narrow ? ARC_MOBILE : ARC_DESKTOP
+
+  // Staged scroll sequence so the layers enter/leave in order:
+  //   IN  → the portal image fades up first (0 → 0.12), THEN the logos + title
+  //          zoom/fade in (0.16 → 0.34).
+  //   OUT → the logos + title leave first (0.74 → 0.86), THEN the image fades
+  //          back to 0 last (0.88 → 1).
+  // Each layer's window is nested inside the one before it, so you never see a
+  // logo without its backdrop, nor the backdrop vanish while logos still show.
+  const imageOpacity = useTransform(scrollYProgress, [0, 0.12, 0.88, 1], [0, 1, 1, 0])
+  const fieldScale = useTransform(scrollYProgress, [0.16, 0.62], [0.5, 1])
+  const fieldOpacity = useTransform(scrollYProgress, [0.16, 0.34, 0.74, 0.86], [0, 1, 1, 0])
   const starScale = useTransform(scrollYProgress, [0, 1], [1.12, 1.4])
-  const headOpacity = useTransform(scrollYProgress, [0.28, 0.52], [0, 1])
-  const headY = useTransform(scrollYProgress, [0.28, 0.52], [26, 0])
+  const headOpacity = useTransform(scrollYProgress, [0.34, 0.5, 0.72, 0.84], [0, 1, 1, 0])
+  const headY = useTransform(scrollYProgress, [0.34, 0.5], [26, 0])
 
   return (
     <section ref={ref} id="protocols" className="relative h-[260vh] bg-black">
       <div className="isolate sticky top-0 flex h-screen items-center justify-center overflow-hidden">
         {/* space background (5.avif) — glowing portal, bottom masked into the section */}
         <div aria-hidden className="pointer-events-none absolute inset-0">
-          <Image src="/space/5.avif" alt="" fill priority sizes="100vw" className="object-cover object-bottom" />
-          <div className="absolute inset-0 bg-black/20" />
+          {/* The portal image itself fades in first / out last on scroll (over the
+              section's own bg-black), while the cream edge-fades stay static so the
+              section always blends into the cream sections above + below. */}
+          <motion.div
+            className="absolute inset-0"
+            style={reduce ? undefined : { opacity: imageOpacity }}
+          >
+            <Image
+              src="/space/5.avif"
+              alt=""
+              fill
+              priority
+              sizes="100vw"
+              className="object-cover object-bottom"
+            />
+            <div className="absolute inset-0 bg-black/20" />
+          </motion.div>
           {/* edges fade into the site background (cream) so the dark section blends
               into the cream sections above and below — not a hard black cut. */}
           <div className="absolute inset-x-0 bottom-0 h-[28%] bg-gradient-to-t from-[var(--color-cream)] via-[var(--color-cream)]/80 to-transparent" />
@@ -94,12 +130,13 @@ export function IntegratedProtocols() {
           style={reduce ? undefined : { scale: fieldScale, opacity: fieldOpacity }}
         >
           {PROTOCOLS.map((p, i) => {
-            const { x, y } = arcPos(i, PROTOCOLS.length)
-            const dim = p.big ? 'h-14 w-14' : 'h-11 w-11'
+            const { x, y } = arcPos(i, PROTOCOLS.length, arc)
+            // Smaller marks + labels on phones so 13 nodes don't overlap.
+            const dim = p.big ? 'h-10 w-10 sm:h-14 sm:w-14' : 'h-8 w-8 sm:h-11 sm:w-11'
             return (
               <motion.div
                 key={p.name}
-                className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2"
+                className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 sm:gap-2"
                 style={{ left: `${x}%`, top: `${y}%` }}
                 animate={reduce ? undefined : { y: [0, i % 2 ? -7 : 7, 0] }}
                 transition={{
@@ -114,7 +151,9 @@ export function IntegratedProtocols() {
                 >
                   <Image src={p.logo} alt={p.name} width={56} height={56} className="h-full w-full object-cover" />
                 </span>
-                <span className="whitespace-nowrap font-mono text-[10px] tracking-wide text-white/55">{p.name}</span>
+                <span className="max-w-[4.5rem] text-center font-mono text-[8px] leading-tight tracking-wide text-white/55 sm:max-w-none sm:whitespace-nowrap sm:text-[10px]">
+                  {p.name}
+                </span>
               </motion.div>
             )
           })}

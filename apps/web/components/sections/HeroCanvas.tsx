@@ -67,8 +67,11 @@ export function HeroCanvas() {
               rounded bottom; outer's overflow-hidden masks any bleed. */}
           <div className="relative flex flex-1 overflow-hidden rounded-t-[14px] border border-b-0 border-[var(--color-border)] bg-[var(--color-paper)] shadow-[0_-24px_50px_-30px_rgba(40,28,18,0.32)]">
             <div className="grid h-full min-h-0 w-full grid-cols-12 grid-rows-1 gap-0">
-              {/* Chat surface , full width on phones (voyage hidden), 5/12 from sm: up */}
-              <div className="col-span-12 sm:col-span-5 sm:border-r sm:border-[var(--color-border)]">
+              {/* Chat surface , full width until lg (voyage hidden), 5/12 from lg: up.
+                  The voyage panel's dense two-column narration overflows its column
+                  at tablet widths, so we keep it desktop-only and show chat-only
+                  below — the page reads cleanly without a cramped, clipped panel. */}
+              <div className="col-span-12 lg:col-span-5 lg:border-r lg:border-[var(--color-border)]">
                 {cycle.surface === 'tui' ? (
                   <TuiCanvas key={cycle.id} cycle={cycle} />
                 ) : (
@@ -76,10 +79,8 @@ export function HeroCanvas() {
                 )}
               </div>
 
-              {/* Output canvas (voyage) , hidden on phones, 7/12 from sm: up. Phones
-                  show chat-only so the page reads cleanly without a stranded
-                  empty panel below. */}
-              <div className="hidden sm:col-span-7 sm:block">
+              {/* Output canvas (voyage) , desktop-only (lg+), 7/12. */}
+              <div className="hidden lg:col-span-7 lg:block">
                 <OutputCanvas key={`${cycle.id}-out`} cycle={cycle} />
               </div>
             </div>

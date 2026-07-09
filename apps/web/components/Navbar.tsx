@@ -208,7 +208,7 @@ export function Navbar() {
           strip never feels like a separate layer. At md+ the wrapper is
           transparent and the desktop pill chrome takes over. */}
       <div
-        className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center bg-[var(--nav-section-bg,var(--color-cream))] pt-5 transition-colors duration-300 ease-out sm:pt-6 lg:bg-transparent"
+        className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center bg-[var(--nav-section-bg,var(--color-cream))] pt-5 backdrop-blur-md transition-colors duration-300 ease-out sm:pt-6 lg:bg-transparent lg:backdrop-blur-none"
         style={{ ['--nav-section-bg' as string]: sectionBg }}
       >
         <motion.nav
@@ -328,6 +328,16 @@ function computeSpread(vw: number) {
 // the page's compositional rhythm instead of whatever button it overlaps.
 let __lastNavBg = ''
 const SECTION_TAGS = new Set(['SECTION', 'MAIN', 'ARTICLE', 'BODY'])
+// Reduce the probed section color to a translucent tint so the mobile nav strip
+// reads as a frosted band (paired with backdrop-blur on the wrapper) instead of
+// a hard opaque bar — softer over the bright Hero waves and the all-black
+// protocols section alike, in both light + dark themes.
+function toTranslucent(color: string, alpha: number): string {
+  const m = color.match(/^rgba?\(([^)]+)\)/)
+  if (!m) return color
+  const [r, g, b] = m[1].split(',').map(s => s.trim())
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
 function probeNavSectionBg(setSectionBg: (bg: string) => void) {
   if (typeof document === 'undefined') return
   const x = window.innerWidth / 2
@@ -338,9 +348,10 @@ function probeNavSectionBg(setSectionBg: (bg: string) => void) {
     if (SECTION_TAGS.has(node.tagName)) {
       const bg = window.getComputedStyle(node).backgroundColor
       if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
-        if (bg !== __lastNavBg) {
-          __lastNavBg = bg
-          setSectionBg(bg)
+        const tint = toTranslucent(bg, 0.8)
+        if (tint !== __lastNavBg) {
+          __lastNavBg = tint
+          setSectionBg(tint)
         }
         return
       }
@@ -621,7 +632,10 @@ function MobileMenuOverlay({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* Nav items , grouped sections, scrollable for the fuller menu. */}
+      {/* Nav items , grouped sections, scrollable for the fuller menu. Standalone
+          entries (Research, Pricing) render at the SAME scale as the grouped
+          sub-items so the menu reads as one consistent type system instead of a
+          couple of oversized outliers. */}
       <nav
         className="flex flex-1 flex-col gap-7 overflow-y-auto px-5 pt-6 pb-12 sm:px-8"
         aria-label="mobile primary"
@@ -648,9 +662,9 @@ function MobileMenuOverlay({ onClose }: { onClose: () => void }) {
               </ul>
             </div>
           ) : (
-            <MenuLink key={entry.label} href={entry.href as string} index={gi} onClose={onClose}>
+            <MobileSubLink key={entry.label} href={entry.href as string} index={gi} onClose={onClose}>
               {entry.label}
-            </MenuLink>
+            </MobileSubLink>
           ),
         )}
       </nav>
@@ -658,47 +672,8 @@ function MobileMenuOverlay({ onClose }: { onClose: () => void }) {
   )
 }
 
-function MenuLink({
-  href,
-  index,
-  children,
-  onClose,
-}: {
-  href: string
-  index: number
-  children: React.ReactNode
-  onClose: () => void
-}) {
-  const isAnchor = href.startsWith('#')
-  const className =
-    'font-display block text-[clamp(40px,11vw,64px)] font-light leading-[1.05] tracking-[-0.02em] text-[var(--color-ink)] transition-opacity hover:opacity-70'
-  const initial = { y: 14, opacity: 0 }
-  const animate = { y: 0, opacity: 1 }
-  const transition = {
-    delay: 0.08 + index * 0.06,
-    duration: 0.45,
-    ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
-  }
-  // Animate the wrapper, not the link itself — putting framer-motion on the
-  // same element that carries Tailwind's `transition-opacity` causes the two
-  // easings to fight over opacity per frame (visible jitter on the anchor
-  // item where motion.a was applied directly).
-  return (
-    <motion.span initial={initial} animate={animate} transition={transition} className="block">
-      {isAnchor ? (
-        <a href={href} onClick={onClose} className={className}>
-          {children}
-        </a>
-      ) : (
-        <Link href={href} onClick={onClose} className={className}>
-          {children}
-        </Link>
-      )}
-    </motion.span>
-  )
-}
-
-// Medium link used for the grouped sub-items in the mobile menu.
+// Link used for both grouped sub-items and standalone entries in the mobile menu
+// (one consistent scale).
 function MobileSubLink({
   href,
   external,
