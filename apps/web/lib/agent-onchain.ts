@@ -102,11 +102,15 @@ export function ownerOnchain(owner: string): OwnerOnchain | null {
     // registerTool filters to the WEB_TOOLS allowlist.
     ;(onchainPlugin.register as (c: unknown) => void)(pluginCtx)
 
-    const byName = new Map(tools.map(t => [t.name, t]))
+    // OpenAI requires tool names to match ^[a-zA-Z0-9_-]+$ (no dots). plugin-onchain
+    // tools use dotted names (e.g. suilend.supply), so send a sanitized name to the
+    // API and map it back to the real tool on dispatch (mirrors lyra-core's brain).
+    const toSafe = (n: string) => n.replace(/[^a-zA-Z0-9_-]/g, '_')
+    const byName = new Map(tools.map(t => [toSafe(t.name), t]))
     const schemas: ToolSchema[] = tools.map(t => ({
       type: 'function',
       function: {
-        name: t.name,
+        name: toSafe(t.name),
         description: t.description,
         // $refStrategy:'none' inlines refs — OpenAI function params reject $ref.
         parameters: zodToJsonSchema(t.schema, { $refStrategy: 'none' }) as Record<string, unknown>,
