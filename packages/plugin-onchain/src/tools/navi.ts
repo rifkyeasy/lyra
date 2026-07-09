@@ -10,8 +10,9 @@
 
 import { Transaction } from '@mysten/sui/transactions'
 import type { ToolDef } from 'lyra-core'
-import { NAVISDKClient, depositCoin, pool, withdrawCoin } from 'navi-sdk'
+import { NAVISDKClient, borrowCoin, depositCoin, pool, repayDebt, withdrawCoin } from 'navi-sdk'
 import { z } from 'zod'
+import { checkMinimum } from '../minimums'
 import { evaluatePolicy, suiToMist } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
@@ -107,17 +108,25 @@ type AmountArgs = z.infer<typeof AmountSchema>
 async function runNaviWrite(
   ctx: OnchainRuntimeContext,
   amount: string,
-  kind: 'supply' | 'withdraw',
+  kind: 'supply' | 'withdraw' | 'borrow' | 'repay',
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
   const err = ensureMainnet(ctx)
   if (err) return { ok: false, error: err }
   const amountMist = suiToMist(amount)
   if (amountMist === undefined || amountMist <= 0n)
     return { ok: false, error: `invalid amount "${amount}"` }
+  // Minimum guard for value-moving actions (withdraw brings value back in).
+  const minAction = kind === 'borrow' ? 'borrow' : kind === 'withdraw' ? null : 'supply'
+  if (minAction) {
+    const tooSmall = checkMinimum(minAction, amountMist)
+    if (tooSmall) return { ok: false, error: tooSmall }
+  }
 
-  if (ctx.policy && kind === 'supply') {
+  // Policy gate on value-moving actions (borrow creates debt + hands out funds;
+  // repay/supply move SUI out). Withdraw pulls the agent's own funds back.
+  if (ctx.policy && kind !== 'withdraw') {
     const verdict = evaluatePolicy(
-      { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'navi' },
+      { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: kind === 'borrow' ? 'borrow' : 'navi' },
       ctx.policy,
     )
     if (!verdict.allowed)
@@ -130,11 +139,19 @@ async function runNaviWrite(
     if (kind === 'supply') {
       const [coin] = tx.splitCoins(tx.gas, [amountMist])
       await depositCoin(tx as never, suiPool as never, coin as never, Number(amountMist))
-    } else {
+    } else if (kind === 'withdraw') {
       // navi-sdk's withdrawCoin already wraps the withdrawn Balance into a Coin
       // (via coin::from_balance) and returns [coin]; destructure and transfer it.
       const [coin] = await withdrawCoin(tx as never, suiPool as never, Number(amountMist))
       tx.transferObjects([coin as never], ctx.agentAddress)
+    } else if (kind === 'borrow') {
+      // Borrow against supplied collateral; hand the borrowed coin to the agent.
+      const [coin] = await borrowCoin(tx as never, suiPool as never, Number(amountMist))
+      tx.transferObjects([coin as never], ctx.agentAddress)
+    } else {
+      // repay: split the repayment from gas and pay down the debt.
+      const [coin] = tx.splitCoins(tx.gas, [amountMist])
+      await repayDebt(tx as never, suiPool as never, coin as never, Number(amountMist))
     }
 
     const sim = await simulate(ctx.client, tx, ctx.agentAddress)
@@ -185,5 +202,26 @@ export function makeNaviWithdraw(ctx: OnchainRuntimeContext): ToolDef<AmountArgs
     searchHint: 'navi withdraw redeem unlend remove sui',
     schema: AmountSchema,
     handler: async args => runNaviWrite(ctx, args.amount, 'withdraw'),
+  }
+}
+
+export function makeNaviBorrow(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
+  return {
+    name: 'navi.borrow',
+    description:
+      'Borrow SUI from NAVI against supplied collateral. Requires an existing supply position with enough health factor; the pre-flight simulation fails cleanly if under-collateralized. Policy-checked, simulated, then executed.',
+    searchHint: 'navi borrow loan leverage debt against collateral sui',
+    schema: AmountSchema,
+    handler: async args => runNaviWrite(ctx, args.amount, 'borrow'),
+  }
+}
+
+export function makeNaviRepay(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
+  return {
+    name: 'navi.repay',
+    description: 'Repay borrowed SUI debt on NAVI. Simulated, then executed.',
+    searchHint: 'navi repay pay back debt loan close sui',
+    schema: AmountSchema,
+    handler: async args => runNaviWrite(ctx, args.amount, 'repay'),
   }
 }

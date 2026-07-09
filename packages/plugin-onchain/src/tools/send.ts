@@ -11,6 +11,7 @@
 import { Transaction } from '@mysten/sui/transactions'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
+import { checkMinimum } from '../minimums'
 import { evaluatePolicy, suiToMist } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
@@ -40,6 +41,8 @@ export function makeSuiSend(ctx: OnchainRuntimeContext): ToolDef<Args> {
         if (amountMist === undefined || amountMist <= 0n) {
           return { ok: false, error: `invalid amount "${args.amount}"` }
         }
+        const tooSmall = checkMinimum('transfer', amountMist)
+        if (tooSmall) return { ok: false, error: tooSmall }
 
         // 1. Policy gate (deterministic) — block before simulate/execute.
         if (ctx.policy) {

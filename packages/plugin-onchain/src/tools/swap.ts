@@ -13,6 +13,7 @@ import { MetaAg } from '@7kprotocol/sdk-ts'
 import { Transaction, coinWithBalance } from '@mysten/sui/transactions'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
+import { checkMinimum } from '../minimums'
 import { evaluatePolicy } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
@@ -63,6 +64,11 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
         if (from.type === to.type) return { ok: false, error: 'from and to are the same coin' }
         const amountIn = BigInt(Math.round(Number(args.amount) * 10 ** from.decimals))
         if (amountIn <= 0n) return { ok: false, error: `invalid amount "${args.amount}"` }
+        // Minimum only bounds SUI-denominated input (amountIn is then in MIST).
+        if (from.type === SUI_TYPE) {
+          const tooSmall = checkMinimum('swap', amountIn)
+          if (tooSmall) return { ok: false, error: tooSmall }
+        }
 
         // Policy gate. The MIST per-tx cap is SUI-denominated, so it only bounds
         // SUI-input swaps; the slippage/protocol/expiry checks always apply.

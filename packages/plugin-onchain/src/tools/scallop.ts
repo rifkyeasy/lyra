@@ -12,6 +12,7 @@
 import { Scallop } from '@scallop-io/sui-scallop-sdk'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
+import { checkMinimum } from '../minimums'
 import { evaluatePolicy, suiToMist } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
@@ -138,6 +139,10 @@ async function runScallopWrite(
   const amountMist = suiToMist(amount)
   if (amountMist === undefined || amountMist <= 0n)
     return { ok: false, error: `invalid amount "${amount}"` }
+  if (kind === 'supply') {
+    const tooSmall = checkMinimum('supply', amountMist)
+    if (tooSmall) return { ok: false, error: tooSmall }
+  }
 
   // Policy gate (deterministic). Supplying moves funds out; withdrawing back in.
   if (ctx.policy && kind === 'supply') {

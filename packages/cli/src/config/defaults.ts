@@ -26,6 +26,8 @@ export const DEFAULT_ALLOWED_COINS = ['0x2::sui::SUI']
 export const DEFAULT_ALLOWED_PROTOCOLS = [
   'transfer',
   'swap',
+  'stake',
+  'borrow',
   'deepbook',
   'scallop',
   'navi',

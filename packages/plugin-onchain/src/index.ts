@@ -25,7 +25,14 @@ import { makeAccountInfo, makeSuiBalance } from './tools/balance'
 import { makeCetusQuote } from './tools/cetus'
 import { makeDeepbookMarkets } from './tools/deepbook'
 import { makeDefiYields } from './tools/defillama'
-import { makeNaviMarkets, makeNaviPosition, makeNaviSupply, makeNaviWithdraw } from './tools/navi'
+import {
+  makeNaviBorrow,
+  makeNaviMarkets,
+  makeNaviPosition,
+  makeNaviRepay,
+  makeNaviSupply,
+  makeNaviWithdraw,
+} from './tools/navi'
 import { makePolicyCreate, makePolicyShow } from './tools/policy'
 import { makeProtocolsList } from './tools/protocols'
 import {
@@ -35,6 +42,7 @@ import {
   makeScallopWithdraw,
 } from './tools/scallop'
 import { makeSuiSend } from './tools/send'
+import { makeStake, makeUnstake } from './tools/stake'
 import { makeSwap } from './tools/swap'
 import { makeWalrusStore } from './tools/walrus'
 import type { OnchainRuntimeContext } from './types'
@@ -91,6 +99,12 @@ const plugin: NativePlugin = {
     ctx.registerTool(makeNaviPosition(onchain) as ToolDef)
     ctx.registerTool(makeNaviSupply(onchain) as ToolDef)
     ctx.registerTool(makeNaviWithdraw(onchain) as ToolDef)
+    ctx.registerTool(makeNaviBorrow(onchain) as ToolDef)
+    ctx.registerTool(makeNaviRepay(onchain) as ToolDef)
+
+    // Native staking (delegate SUI to a validator; min 1 SUI).
+    ctx.registerTool(makeStake(onchain) as ToolDef)
+    ctx.registerTool(makeUnstake(onchain) as ToolDef)
   },
 }
 
