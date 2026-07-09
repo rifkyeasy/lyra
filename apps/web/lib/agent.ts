@@ -2,12 +2,14 @@
 // loop over live Sui reads (@mysten/sui) — balances, the agent's on-chain
 // AgentPolicy, recent ActionReceipts, and DeFiLlama yield discovery.
 //
-// Value-moving actions are NOT executed here: on Sui they run through the CLI /
-// gateway as policy-checked PTBs (deterministic Move code enforces the bounds in
-// the live `AgentPolicy`). The web brain is a read + advise surface, so it never
-// holds a signing key and never broadcasts.
+// Transfer/swap are prepared as vault-backed actions the signed-in owner executes
+// via an "Execute" card. Lending + staking now EXECUTE inline through the same
+// plugin-onchain tool registry the CLI uses (see agent-onchain.ts), bound to the
+// signed-in owner's derived agent and gated by the deterministic on-chain policy —
+// so the web can do everything the CLI can, not just read + advise.
 import 'server-only'
 
+import { ownerOnchain } from '@/lib/agent-onchain'
 import {
   LYRA_POLICY_PACKAGE_ID,
   SUI_COIN_TYPE,
@@ -445,9 +447,14 @@ agent. When the user asks to SEND/TRANSFER coins call propose_transfer; when the
 call propose_swap. These return a pending action the UI renders as an "Execute" button — when the signed-in
 owner clicks it, the AGENT signs and executes under policy (you never sign). Say you've prepared it and it
 will run within the AgentPolicy bounds on confirm; if it would exceed the per-tx cap, say so. If the user
-isn't signed in, ask them to connect + sign in (top-right) to authorize their agent. Lending (supply/
-withdraw) currently runs through the CLI/gateway — for those, explain what the agent would do. Always read
-live data (balances, policy, yields) with the read tools before proposing, and never invent numbers.
+isn't signed in, ask them to connect + sign in (top-right) to authorize their agent.
+LENDING + STAKING execute directly when signed in — call the tools and they run under the on-chain policy
+gate (simulate → execute → receipt), returning a tx digest: supply/withdraw on Scallop, supply/withdraw/
+borrow/repay on NAVI, native staking (sui.stake/sui.unstake), and Volo liquid staking (volo.stake/
+volo.unstake). These act with the owner's own derived agent, so its address must hold SUI; if a tool reports
+too-small/insufficient/simulation-failed, report that honestly and suggest funding the agent or a larger
+amount. (Suilend runs on the CLI.) Always read live data (balances, policy, yields) with the read tools
+before acting, and never invent numbers.
 Amounts are in SUI (1 SUI = 1e9 MIST). Memory and receipts are anchored with Walrus.
 Be concise and concrete. When you cite a balance, yield, policy field, or receipt, it must come from a tool result.`
 
@@ -475,6 +482,12 @@ export async function runAgent(
     opts.authedAddress && isSuiAddress(opts.authedAddress) ? opts.authedAddress : null
   const ctx: ToolContext = { walletAddress }
 
+  // When signed in, expose the plugin-onchain lending/staking tools bound to the
+  // owner's derived agent (executed inline under policy). Nulled out when not
+  // signed in (no owner to derive) or no master secret — then read + propose only.
+  const onchain = walletAddress ? ownerOnchain(walletAddress) : null
+  const TOOL_LIST = onchain ? [...TOOLS, ...onchain.schemas] : TOOLS
+
   const sys = walletAddress
     ? `${SYSTEM_PROMPT}\nThe user's connected Sui wallet is ${walletAddress}. When they say "my", treat that as this address — call tools with no address (they default to it) and never ask them to paste an address.`
     : `${SYSTEM_PROMPT}\nThe user is not signed in, so there is no connected wallet. If they ask about "my" balance/portfolio, ask them to connect their Sui wallet (top-right) — or answer for a specific address if they give one.\nThe live Lyra policy package on Sui mainnet is ${LYRA_POLICY_PACKAGE_ID}.`
@@ -490,7 +503,7 @@ export async function runAgent(
       body: JSON.stringify({
         model: MODEL,
         messages,
-        tools: TOOLS,
+        tools: TOOL_LIST,
         tool_choice: 'auto',
         temperature: 0.3,
       }),
@@ -515,7 +528,12 @@ export async function runAgent(
       } catch {}
       let result: unknown
       try {
-        result = await runTool(call.function.name, parsed, ctx)
+        // plugin-onchain tools (lending/staking) execute inline via the owner's
+        // agent registry; everything else is a web-native read/propose tool.
+        result =
+          onchain && onchain.names.has(call.function.name)
+            ? await onchain.dispatch(call.function.name, parsed)
+            : await runTool(call.function.name, parsed, ctx)
       } catch (e) {
         result = { error: (e as Error).message }
       }

@@ -20,6 +20,23 @@ for (const pkg of DEDUPE) {
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // Keep the on-chain agent stack (and its heavy SDKs) as runtime node requires
+  // instead of webpack-bundling them into the server chunks — they're server-only,
+  // pull native-ish deps (navi-sdk→axios, walrus WASM), and the plugin's
+  // capture-shim must run at import time. Only reachable from `runtime:'nodejs'`
+  // API routes (the web agent execution path), never the client.
+  serverExternalPackages: [
+    'lyra-core',
+    'lyra-plugin-onchain',
+    'navi-sdk',
+    '@suilend/sdk',
+    '@scallop-io/sui-scallop-sdk',
+    '@7kprotocol/sdk-ts',
+    '@mysten/walrus',
+    '@mysten/deepbook-v3',
+    '@cetusprotocol/aggregator-sdk',
+    '@pythnetwork/pyth-sui-js',
+  ],
   // Dev + build both run on webpack (the dev script drops --turbopack): turbopack
   // does not resolve this bun workspace's root-hoisted node_modules, and webpack
   // also applies the react-query dedupe alias below.

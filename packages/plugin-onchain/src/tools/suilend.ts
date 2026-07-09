@@ -20,12 +20,7 @@
  */
 
 import { Transaction } from '@mysten/sui/transactions'
-import {
-  LENDING_MARKET_ID,
-  LENDING_MARKET_TYPE,
-  SuilendClient,
-  initializeSuilend,
-} from '@suilend/sdk'
+import type { SuilendClient } from '@suilend/sdk'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
 import { checkMinimum } from '../minimums'
@@ -37,6 +32,15 @@ const SUI_TYPE = '0x2::sui::SUI'
 // Canonical + long-form SUI coin types (reserve maps may use either).
 const SUI_LONG = `0x${'0'.repeat(63)}2::sui::SUI`
 
+// Lazy-load @suilend/sdk: its ESM has a directory import (@suilend/springsui-sdk)
+// that Node's ESM resolver rejects, so a top-level import would break anything
+// that imports this plugin under Node (e.g. the Next.js web server). Deferring
+// it to call-time keeps `import lyra-plugin-onchain` Node-safe; the SDK only
+// loads when a Suilend tool actually runs (fine under Bun — CLI/gateway).
+async function suilendSdk() {
+  return import('@suilend/sdk')
+}
+
 function ensureMainnet(ctx: OnchainRuntimeContext): string | null {
   return ctx.network === 'mainnet' ? null : 'Suilend SDK supports mainnet only'
 }
@@ -44,6 +48,7 @@ function ensureMainnet(ctx: OnchainRuntimeContext): string | null {
 async function newSuilend(ctx: OnchainRuntimeContext): Promise<SuilendClient> {
   // ctx.client is @mysten/sui v1.4x; @suilend/sdk@1.1.x binds @mysten/sui as a
   // peer, so the client interops directly across the copy boundary.
+  const { SuilendClient, LENDING_MARKET_ID, LENDING_MARKET_TYPE } = await suilendSdk()
   return SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, ctx.client as never)
 }
 
@@ -64,6 +69,7 @@ function isSuiType(t: string): boolean {
 async function findObligation(
   ctx: OnchainRuntimeContext,
 ): Promise<{ capId: string; obligationId: string } | null> {
+  const { SuilendClient, LENDING_MARKET_TYPE } = await suilendSdk()
   let lastErr: unknown
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
@@ -219,6 +225,7 @@ export function makeSuilendWithdraw(ctx: OnchainRuntimeContext): ToolDef<AmountA
         if (!obligation)
           return { ok: false, error: 'no Suilend position — supply SUI before withdrawing' }
         // Convert underlying → cTokens using the SUI reserve exchange rate.
+        const { initializeSuilend } = await suilendSdk()
         const data = await initializeSuilend(ctx.client as never, suilend)
         const rate = suiReserveExchangeRate(data)
         if (rate === null) return { ok: false, error: 'could not read SUI reserve exchange rate' }
