@@ -41,6 +41,7 @@ import {
   makeSuiClient,
   policyFromEnv,
   policyRequiresApprovalForCall,
+  resolveVaultForAgent,
 } from 'lyra-plugin-onchain'
 import {
   type ApprovalChoiceKind,
@@ -330,6 +331,11 @@ export async function buildLyraRuntime(opts: BuildRuntimeOpts): Promise<BuiltRun
   if (pluginNames.includes('onchain')) {
     const client = makeSuiClient(network)
     const keypair = keypairFromSecret(agentSecret)
+    // Auto-resolve this agent's treasury vault (if provisioned) so DeFi tools
+    // source funds from the vault via the policy-gated vault_spend instead of the
+    // agent's own coin. Best-effort + owner-agnostic (found by the agent tag on
+    // PolicyCreated); falls back to the agent's SUI when there's no vault.
+    const vault = await resolveVaultForAgent(agentAddress, network).catch(() => null)
     onchain = {
       client,
       keypair,
@@ -337,7 +343,11 @@ export async function buildLyraRuntime(opts: BuildRuntimeOpts): Promise<BuiltRun
       network,
       policy: policyFromEnv(process.env),
       packageId: config.identity.packageId ?? process.env.LYRA_PACKAGE_ID,
-      policyObjectId: config.identity.policyObjectId ?? process.env.LYRA_POLICY_OBJECT_ID,
+      policyObjectId:
+        config.identity.policyObjectId ?? process.env.LYRA_POLICY_OBJECT_ID ?? vault?.policyId,
+      vaultId: vault?.vaultId,
+      vaultMist: vault?.vaultMist,
+      ownerAddress: vault?.owner,
       agentDir,
       brainProvider: config.brain.provider,
       brainModel: config.brain.model,

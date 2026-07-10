@@ -264,9 +264,9 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
   )
   // Onchain side-band ctx: the Sui client + agent keypair drive every PTB, and
   // the deterministic policy (mirrored on-chain by lyra::policy) bounds writes.
-  let onchain: ReturnType<typeof buildOnchainContext> | undefined
+  let onchain: Awaited<ReturnType<typeof buildOnchainContext>> | undefined
   if (pluginNames.includes('onchain')) {
-    onchain = buildOnchainContext({
+    onchain = await buildOnchainContext({
       agent,
       network: config.network,
       agentDir: paths.dir,
@@ -278,11 +278,13 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
   // works regardless of which plugins loaded.
   const balanceClient =
     onchain?.client ??
-    buildOnchainContext({
-      agent,
-      network: config.network,
-      agentDir: paths.dir,
-    }).client
+    (
+      await buildOnchainContext({
+        agent,
+        network: config.network,
+        agentDir: paths.dir,
+      })
+    ).client
   // Phase 12: telegram side-band ctx. We build the runtime context now (before
   // brain.init) so the plugin can register its listener via ctx.registerListener,
   // but the dispatch callback is deferred — the slot's `.current` is null until

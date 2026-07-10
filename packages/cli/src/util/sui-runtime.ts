@@ -20,6 +20,7 @@ import {
   keypairFromSecret,
   makeSuiClient,
   policyFromEnv,
+  resolveVaultForAgent,
 } from 'lyra-plugin-onchain'
 import { resolvePackageId, resolvePolicyEnv } from '../config/defaults'
 
@@ -97,11 +98,16 @@ export interface BuildOnchainOpts {
  * wrote (`LYRA_PACKAGE_ID` / `LYRA_POLICY_OBJECT_ID`); the off-chain policy
  * mirror comes from `policyFromEnv()` (the `LYRA_POLICY_*` vars).
  */
-export function buildOnchainContext(opts: BuildOnchainOpts): OnchainRuntimeContext {
+export async function buildOnchainContext(opts: BuildOnchainOpts): Promise<OnchainRuntimeContext> {
   // packageId: explicit opt wins, then LYRA_PACKAGE_ID, then the deployed
   // mainnet default — so on-chain receipts work with zero env config.
   const packageId = opts.packageId ?? resolvePackageId()
-  const policyObjectId = opts.policyObjectId ?? process.env.LYRA_POLICY_OBJECT_ID ?? undefined
+  // Auto-resolve this agent's treasury vault (if provisioned) so DeFi tools draw
+  // from the vault via the policy-gated vault_spend; falls back to the agent's own
+  // SUI when there's none. Owner-agnostic (found by the agent tag on-chain).
+  const vault = await resolveVaultForAgent(opts.agent.address, opts.network).catch(() => null)
+  const policyObjectId =
+    opts.policyObjectId ?? process.env.LYRA_POLICY_OBJECT_ID ?? vault?.policyId ?? undefined
   return {
     client: makeSuiClient(opts.network),
     keypair: opts.agent.keypair,
@@ -112,6 +118,9 @@ export function buildOnchainContext(opts: BuildOnchainOpts): OnchainRuntimeConte
     policy: policyFromEnv(resolvePolicyEnv()),
     packageId: packageId || undefined,
     policyObjectId: policyObjectId || undefined,
+    vaultId: vault?.vaultId,
+    vaultMist: vault?.vaultMist,
+    ownerAddress: vault?.owner,
     agentDir: opts.agentDir,
     brainProvider: opts.brainProvider ?? null,
     brainModel: opts.brainModel ?? null,

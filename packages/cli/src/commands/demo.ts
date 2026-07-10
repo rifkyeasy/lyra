@@ -68,7 +68,7 @@ export async function runDemo(opts: DemoOpts = {}): Promise<void> {
 
   console.log(`lyra demo — agent ${agent.address} on ${config.network}\n`)
 
-  const onchain = buildOnchainContext({
+  const onchain = await buildOnchainContext({
     agent,
     network: config.network,
     agentDir: found.path,
