@@ -1,6 +1,6 @@
 {
   "name": "lyra-gateway",
-  "version": "0.1.6",
+  "version": "0.1.10",
   "type": "module",
   "description": "Lyra gateway daemon: the always-on local brain runtime + listeners (Telegram, approvals) for the lyra agent",
   "license": "MIT",
@@ -35,10 +35,10 @@
     "@mysten/sui": "^1.45.2",
     "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
-    "lyra-core": "^0.1.2",
-    "lyra-plugin-onchain": "^0.1.2",
-    "lyra-plugin-system": "^0.1.2",
-    "lyra-plugin-telegram": "^0.1.2",
+    "lyra-core": "^0.1.10",
+    "lyra-plugin-onchain": "^0.1.10",
+    "lyra-plugin-system": "^0.1.10",
+    "lyra-plugin-telegram": "^0.1.10",
     "zod": "^3.24.1"
   }
 }

@@ -1,8 +1,8 @@
 {
   "name": "lyra-plugin-telegram",
-  "version": "0.1.2",
+  "version": "0.1.10",
   "type": "module",
-  "description": "Telegram channel for lyra \u2014 long-poll bot, debounced dispatch, inline-keyboard approvals, allowlist",
+  "description": "Telegram channel for lyra — long-poll bot, debounced dispatch, inline-keyboard approvals, allowlist",
   "license": "MIT",
   "homepage": "https://github.com/rifkyeasy/lyra",
   "repository": {
@@ -30,7 +30,7 @@
   "dependencies": {
     "@mysten/sui": "^1.45.0",
     "grammy": "^1.42.0",
-    "lyra-core": "^0.1.2",
+    "lyra-core": "^0.1.10",
     "zod": "^3.23.8"
   }
 }
