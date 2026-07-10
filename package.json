@@ -6,7 +6,10 @@
   "description": "A Sui-native, policy-bound autonomous finance agent",
   "repository": "github.com/rifkyeasy/lyra",
   "license": "MIT",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/web"
+  ],
   "scripts": {
     "build": "bun run --filter='*' build",
     "typecheck": "tsc -b",
