@@ -4,12 +4,12 @@
   "commit": false,
   "fixed": [
     [
-      "lyra-ai-cli",
+      "lyra-ai-agent",
       "lyra-core",
-      "lyra-ai-harness",
-      "lyra-ai-plugin-comms",
+      "lyra-gateway",
       "lyra-plugin-onchain",
-      "lyra-plugin-system"
+      "lyra-plugin-system",
+      "lyra-plugin-telegram"
     ]
   ],
   "linked": [],
