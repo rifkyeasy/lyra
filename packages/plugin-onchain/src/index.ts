@@ -74,7 +74,12 @@ export {
 } from './policy'
 export { policyRequiresApprovalForCall } from './approval'
 export { deriveAgentKeypair, deriveAgentAddress } from './derive'
-export { resolveOwnerVault, type OwnerVault } from './vault'
+export {
+  resolveOwnerVault,
+  resolveVaultForAgent,
+  type OwnerVault,
+  type AgentVault,
+} from './vault'
 export { ONCHAIN_GUIDANCE } from './guidance'
 export type { OnchainRuntimeContext } from './types'
 export {

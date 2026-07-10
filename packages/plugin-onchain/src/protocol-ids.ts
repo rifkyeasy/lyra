@@ -24,6 +24,7 @@ export const PROTOCOL_IDS = {
   navi: '0x1e4a13a0494d5facdbe8473e74127b838c2d446ecec0ce262e2eddafa77259cb',
   suilend: '0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf',
   volo: '0x68d22cf8bdbcd11ecba1e094922873e4080d4d11133e2443fddda0bfd11dae20',
+  scallop: '0xde5c09ad171544aa3724dc67216668c80e754860f419136a68d78504eb2e2805',
 } as const
 
 export type ProtocolKey = keyof typeof PROTOCOL_IDS
@@ -34,6 +35,7 @@ export const PROTOCOL_LABELS: Record<string, string> = {
   [PROTOCOL_IDS.navi]: 'NAVI',
   [PROTOCOL_IDS.suilend]: 'Suilend',
   [PROTOCOL_IDS.volo]: 'Volo (vSUI)',
+  [PROTOCOL_IDS.scallop]: 'Scallop',
 }
 
 /** The allowlistable protocols in display order, for building the owner UI. */
@@ -42,4 +44,5 @@ export const ALLOWLISTABLE_PROTOCOLS: { key: ProtocolKey; id: string; label: str
   { key: 'navi', id: PROTOCOL_IDS.navi, label: 'NAVI' },
   { key: 'suilend', id: PROTOCOL_IDS.suilend, label: 'Suilend' },
   { key: 'volo', id: PROTOCOL_IDS.volo, label: 'Volo (vSUI)' },
+  { key: 'scallop', id: PROTOCOL_IDS.scallop, label: 'Scallop' },
 ]

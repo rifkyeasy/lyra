@@ -33,4 +33,9 @@ export const ALLOWLISTABLE_PROTOCOLS: { key: string; id: string; label: string }
     id: '0x68d22cf8bdbcd11ecba1e094922873e4080d4d11133e2443fddda0bfd11dae20',
     label: 'Volo (vSUI)',
   },
+  {
+    key: 'scallop',
+    id: '0xde5c09ad171544aa3724dc67216668c80e754860f419136a68d78504eb2e2805',
+    label: 'Scallop',
+  },
 ]

@@ -14,8 +14,10 @@ import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
 import { checkMinimum } from '../minimums'
 import { evaluatePolicy, suiToMist } from '../policy'
+import { PROTOCOL_IDS } from '../protocol-ids'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
+import { fundSui, returnSuiToVault } from '../vault-fund'
 
 const SUI_TYPE = '0x2::sui::SUI'
 
@@ -164,10 +166,18 @@ async function runScallopWrite(
     const builder = await sdk.createScallopBuilder()
     const tx = builder.createTxBlock()
     tx.setSender(ctx.agentAddress)
-    // depositQuick's 3rd arg returnSCoin=false keeps the old market-coin standard.
     let out: unknown
     if (kind === 'supply') {
-      out = await tx.depositQuick(Number(amountMist), 'sui', false)
+      // Source the deposit from the treasury vault (policy-enforced) when wired,
+      // then hand the vault-drawn Coin<SUI> to Scallop's non-quick `deposit` (the
+      // `*Quick` helpers auto-select the agent's own coins, so they can't be vault-
+      // funded). `deposit` returns the market coin, sent to the agent below.
+      const coin = fundSui(tx.txBlock as never, ctx, amountMist, {
+        protocol: PROTOCOL_IDS.scallop,
+        kind: 'supply',
+        memo: 'scallop supply',
+      })
+      out = await tx.deposit(coin as never, 'sui')
     } else {
       // withdrawQuick redeems a MARKET-COIN amount, not underlying SUI. Convert
       // the requested SUI to market coins at the position's rate and clamp to the
@@ -192,7 +202,12 @@ async function runScallopWrite(
       if (redeemMc > heldMc || redeemMc <= 0n) redeemMc = heldMc
       out = await tx.withdrawQuick(Number(redeemMc), 'sui')
     }
-    if (out) tx.transferObjects([out as never], ctx.agentAddress)
+    if (out) {
+      // Option 1: cycle withdrawn SUI back into the vault (treasury stays intact);
+      // supply's market coin and the no-vault case go to the agent.
+      const cycled = kind === 'withdraw' && returnSuiToVault(tx.txBlock as never, ctx, out as never)
+      if (!cycled) tx.transferObjects([out as never], ctx.agentAddress)
+    }
     const transaction = tx.txBlock
 
     const sim = await simulate(ctx.client, transaction, ctx.agentAddress)
