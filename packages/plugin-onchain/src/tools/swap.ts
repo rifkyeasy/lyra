@@ -17,6 +17,7 @@ import { checkMinimum } from '../minimums'
 import { evaluatePolicy } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
+import { fundSui } from '../vault-fund'
 
 const SUI_TYPE = '0x2::sui::SUI'
 
@@ -119,9 +120,16 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
           tx.setSender(me)
           tx.setGasBudget(150_000_000)
           try {
+            // SUI input is sourced from the treasury vault (policy-enforced) when
+            // wired; non-SUI input comes from the agent's own balance (the vault
+            // is SUI-typed). The swapped output goes to the agent.
             const coinIn =
               from.type === SUI_TYPE
-                ? tx.splitCoins(tx.gas, [amountIn])[0]
+                ? fundSui(tx, ctx, amountIn, {
+                    protocol: '0x0',
+                    kind: 'swap',
+                    memo: `swap to ${args.to}`,
+                  })
                 : coinWithBalance({ type: from.type, balance: amountIn })
             const coinOut = await ag.swap({ quote: q, signer: me, tx, coinIn: coinIn as never })
             tx.transferObjects([coinOut as never], me)

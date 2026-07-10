@@ -137,6 +137,10 @@ public struct AgentRotated has copy, drop {
 
 public struct RecipientsSet has copy, drop { policy_id: ID, count: u64 }
 
+public struct ProtocolAllowlistChanged has copy, drop { policy_id: ID, count: u64 }
+
+public struct CoinAllowlistChanged has copy, drop { policy_id: ID, count: u64 }
+
 // === Create ===
 
 /// Composable constructor: build an `AgentPolicy` + its `PolicyOwnerCap` and
@@ -362,6 +366,106 @@ public fun recipient_allowed(policy: &AgentPolicy, recipient: address): bool {
 /// Abort unless `recipient` is allowed. Used by `lyra::vault::vault_transfer`.
 public fun assert_recipient_allowed(policy: &AgentPolicy, recipient: address) {
     assert!(recipient_allowed(policy, recipient), ERecipientNotAllowed);
+}
+
+// === Allowlist management (owner cap) ===
+//
+// The coin + protocol allowlists are seeded at creation, but the Sui ecosystem
+// keeps growing — new protocols and coin types appear constantly. These owner-cap
+// setters let the owner extend (or trim) the allowlists with a single tx, so a new
+// protocol or asset can be authorized WITHOUT redeploying or re-provisioning. They
+// mutate the existing vectors in place, so they are purely additive at the package
+// level (upgrade-compatible: no struct or signature change). All are cap-gated, so
+// only the owner — never the agent — can widen what the agent is allowed to touch.
+
+/// Authorize a protocol package/registry id (idempotent). After this the agent may
+/// act on `protocol` within the existing budget/cap. No-op if already present.
+public fun add_allowed_protocol(policy: &mut AgentPolicy, cap: &PolicyOwnerCap, protocol: address) {
+    assert!(cap.policy_id == object::id(policy), EWrongPolicy);
+    if (!policy.allowed_protocols.contains(&protocol)) {
+        policy.allowed_protocols.push_back(protocol);
+        event::emit(ProtocolAllowlistChanged {
+            policy_id: object::id(policy),
+            count: policy.allowed_protocols.length(),
+        });
+    };
+}
+
+/// De-authorize a protocol (no-op if absent). Order within the list is irrelevant.
+public fun remove_allowed_protocol(
+    policy: &mut AgentPolicy,
+    cap: &PolicyOwnerCap,
+    protocol: address,
+) {
+    assert!(cap.policy_id == object::id(policy), EWrongPolicy);
+    let (found, i) = policy.allowed_protocols.index_of(&protocol);
+    if (found) {
+        policy.allowed_protocols.swap_remove(i);
+        event::emit(ProtocolAllowlistChanged {
+            policy_id: object::id(policy),
+            count: policy.allowed_protocols.length(),
+        });
+    };
+}
+
+/// Replace the entire protocol allowlist. An empty vector means ANY protocol is
+/// permitted (the allowlist is opt-in hardening, same semantics as at creation).
+public fun set_allowed_protocols(
+    policy: &mut AgentPolicy,
+    cap: &PolicyOwnerCap,
+    protocols: vector<address>,
+) {
+    assert!(cap.policy_id == object::id(policy), EWrongPolicy);
+    policy.allowed_protocols = protocols;
+    event::emit(ProtocolAllowlistChanged {
+        policy_id: object::id(policy),
+        count: policy.allowed_protocols.length(),
+    });
+}
+
+/// Authorize a coin type — the fully-qualified type name as ascii bytes, e.g.
+/// `b"0x2::sui::SUI"` (idempotent, no-op if already present). Matches the encoding
+/// `enforce_spend` derives from `type_name::with_defining_ids<T>()`.
+public fun add_allowed_coin(policy: &mut AgentPolicy, cap: &PolicyOwnerCap, coin_type: vector<u8>) {
+    assert!(cap.policy_id == object::id(policy), EWrongPolicy);
+    if (!policy.allowed_coins.contains(&coin_type)) {
+        policy.allowed_coins.push_back(coin_type);
+        event::emit(CoinAllowlistChanged {
+            policy_id: object::id(policy),
+            count: policy.allowed_coins.length(),
+        });
+    };
+}
+
+/// De-authorize a coin type (no-op if absent).
+public fun remove_allowed_coin(
+    policy: &mut AgentPolicy,
+    cap: &PolicyOwnerCap,
+    coin_type: vector<u8>,
+) {
+    assert!(cap.policy_id == object::id(policy), EWrongPolicy);
+    let (found, i) = policy.allowed_coins.index_of(&coin_type);
+    if (found) {
+        policy.allowed_coins.swap_remove(i);
+        event::emit(CoinAllowlistChanged {
+            policy_id: object::id(policy),
+            count: policy.allowed_coins.length(),
+        });
+    };
+}
+
+/// Replace the entire coin allowlist. An empty vector means ANY coin is permitted.
+public fun set_allowed_coins(
+    policy: &mut AgentPolicy,
+    cap: &PolicyOwnerCap,
+    coins: vector<vector<u8>>,
+) {
+    assert!(cap.policy_id == object::id(policy), EWrongPolicy);
+    policy.allowed_coins = coins;
+    event::emit(CoinAllowlistChanged {
+        policy_id: object::id(policy),
+        count: policy.allowed_coins.length(),
+    });
 }
 
 // === Getters ===
@@ -653,6 +757,97 @@ fun rejects_foreign_owner_cap() {
         policy_id: object::id_from_address(@0xF00D),
     };
     top_up(&mut policy, &cap, 1);
+    destroy(cap);
+    destroy(policy);
+}
+
+#[test]
+fun add_remove_protocol_updates_allowlist() {
+    let mut ctx = tx_context::dummy();
+    let clk = clock::create_for_testing(&mut ctx);
+    // Start with a single allowed protocol; a second one is initially rejected.
+    let mut policy = mk(10_000, 10_000, 0, vector[], vector[@0xDEE9], &mut ctx);
+    let cap = PolicyOwnerCap { id: object::new(&mut ctx), policy_id: object::id(&policy) };
+
+    assert!(!policy.would_allow<SUI>(100, @0xBEEF, &clk)); // not yet allowed
+
+    add_allowed_protocol(&mut policy, &cap, @0xBEEF);
+    add_allowed_protocol(&mut policy, &cap, @0xBEEF); // idempotent
+    assert!(policy.allowed_protocols().length() == 2);
+    assert!(policy.would_allow<SUI>(100, @0xBEEF, &clk)); // now allowed
+    // And a real spend on the freshly-authorized protocol goes through.
+    let r = enforce_spend<SUI>(&mut policy, 100, @0xBEEF, b"supply", b"", &clk, &mut ctx);
+    destroy(r);
+
+    remove_allowed_protocol(&mut policy, &cap, @0xBEEF);
+    assert!(policy.allowed_protocols().length() == 1);
+    assert!(!policy.would_allow<SUI>(100, @0xBEEF, &clk)); // revoked again
+
+    destroy(cap);
+    destroy(policy);
+    clock::destroy_for_testing(clk);
+}
+
+#[test]
+fun set_protocols_replaces_allowlist() {
+    let mut ctx = tx_context::dummy();
+    let clk = clock::create_for_testing(&mut ctx);
+    let mut policy = mk(10_000, 10_000, 0, vector[], vector[@0xDEE9], &mut ctx);
+    let cap = PolicyOwnerCap { id: object::new(&mut ctx), policy_id: object::id(&policy) };
+
+    set_allowed_protocols(&mut policy, &cap, vector[@0xAAA, @0xBBB]);
+    assert!(policy.allowed_protocols().length() == 2);
+    assert!(policy.would_allow<SUI>(100, @0xAAA, &clk));
+    assert!(!policy.would_allow<SUI>(100, @0xDEE9, &clk)); // old entry gone
+
+    // Empty vector re-opens to ANY protocol.
+    set_allowed_protocols(&mut policy, &cap, vector[]);
+    assert!(policy.would_allow<SUI>(100, @0xDEE9, &clk));
+
+    destroy(cap);
+    destroy(policy);
+    clock::destroy_for_testing(clk);
+}
+
+#[test]
+fun add_remove_coin_updates_allowlist() {
+    let mut ctx = tx_context::dummy();
+    let clk = clock::create_for_testing(&mut ctx);
+    // Allowlist a bogus coin so SUI starts rejected.
+    let mut policy = mk(10_000, 10_000, 0, vector[b"0x0::nope::NOPE"], vector[], &mut ctx);
+    let cap = PolicyOwnerCap { id: object::new(&mut ctx), policy_id: object::id(&policy) };
+
+    assert!(!policy.would_allow<SUI>(100, @0x0, &clk)); // SUI not allowed yet
+
+    add_allowed_coin(&mut policy, &cap, sui_type());
+    add_allowed_coin(&mut policy, &cap, sui_type()); // idempotent
+    assert!(policy.allowed_coins().length() == 2);
+    assert!(policy.would_allow<SUI>(100, @0x0, &clk)); // SUI now allowed
+
+    remove_allowed_coin(&mut policy, &cap, sui_type());
+    assert!(policy.allowed_coins().length() == 1);
+    assert!(!policy.would_allow<SUI>(100, @0x0, &clk)); // rejected again
+
+    // Clearing the coin allowlist re-opens to ANY coin.
+    set_allowed_coins(&mut policy, &cap, vector[]);
+    assert!(policy.would_allow<SUI>(100, @0x0, &clk));
+
+    destroy(cap);
+    destroy(policy);
+    clock::destroy_for_testing(clk);
+}
+
+#[test, expected_failure(abort_code = EWrongPolicy)]
+fun add_protocol_rejects_foreign_cap() {
+    let mut ctx = tx_context::dummy();
+    let mut policy = mk(500, 500, 0, vector[], vector[], &mut ctx);
+    // Only the matching owner cap may widen the allowlist — not the agent, not a
+    // cap for another policy.
+    let cap = PolicyOwnerCap {
+        id: object::new(&mut ctx),
+        policy_id: object::id_from_address(@0xF00D),
+    };
+    add_allowed_protocol(&mut policy, &cap, @0xBEEF);
     destroy(cap);
     destroy(policy);
 }

@@ -16,6 +16,7 @@ import { checkMinimum } from '../minimums'
 import { evaluatePolicy, suiToMist } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
+import { fundSui, returnSuiToVault } from '../vault-fund'
 
 const SUI_TYPE = '0x2::sui::SUI'
 
@@ -142,20 +143,33 @@ async function runNaviWrite(
     const tx = new Transaction()
     const suiPool = (pool as Record<string, unknown>).Sui
     if (kind === 'supply') {
-      const [coin] = tx.splitCoins(tx.gas, [amountMist])
+      // Source the supply from the treasury vault (policy-enforced) when wired.
+      const coin = fundSui(tx, ctx, amountMist, {
+        protocol: '0x0',
+        kind: 'supply',
+        memo: 'navi supply',
+      })
       await depositCoin(tx as never, suiPool as never, coin as never, Number(amountMist))
     } else if (kind === 'withdraw') {
       // navi-sdk's withdrawCoin already wraps the withdrawn Balance into a Coin
-      // (via coin::from_balance) and returns [coin]; destructure and transfer it.
+      // (via coin::from_balance) and returns [coin]. Option 1: cycle it back into
+      // the vault (treasury stays intact); fall back to the agent when no vault.
       const [coin] = await withdrawCoin(tx as never, suiPool as never, Number(amountMist))
-      tx.transferObjects([coin as never], ctx.agentAddress)
+      if (!returnSuiToVault(tx, ctx, coin as never))
+        tx.transferObjects([coin as never], ctx.agentAddress)
     } else if (kind === 'borrow') {
-      // Borrow against supplied collateral; hand the borrowed coin to the agent.
+      // Borrow against supplied collateral; park the borrowed SUI in the vault
+      // (spendable under policy) when wired, else hand it to the agent.
       const [coin] = await borrowCoin(tx as never, suiPool as never, Number(amountMist))
-      tx.transferObjects([coin as never], ctx.agentAddress)
+      if (!returnSuiToVault(tx, ctx, coin as never))
+        tx.transferObjects([coin as never], ctx.agentAddress)
     } else {
-      // repay: split the repayment from gas and pay down the debt.
-      const [coin] = tx.splitCoins(tx.gas, [amountMist])
+      // repay: draw the repayment from the vault (policy-enforced) and pay the debt.
+      const coin = fundSui(tx, ctx, amountMist, {
+        protocol: '0x0',
+        kind: 'repay',
+        memo: 'navi repay',
+      })
       await repayDebt(tx as never, suiPool as never, coin as never, Number(amountMist))
     }
 

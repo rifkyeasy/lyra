@@ -506,7 +506,7 @@ export async function runAgent(
   // When signed in, expose the plugin-onchain lending/staking tools bound to the
   // owner's derived agent (executed inline under policy). Nulled out when not
   // signed in (no owner to derive) or no master secret — then read + propose only.
-  const onchain = walletAddress ? ownerOnchain(walletAddress) : null
+  const onchain = walletAddress ? await ownerOnchain(walletAddress) : null
   const agentAddress = onchain?.agentAddress ?? null
   const ctx: ToolContext = { walletAddress, agentAddress }
   const TOOL_LIST = onchain ? [...TOOLS, ...onchain.schemas] : TOOLS

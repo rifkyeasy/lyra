@@ -18,6 +18,7 @@ import { checkMinimum } from '../minimums'
 import { evaluatePolicy, suiToMist } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
+import { fundSui } from '../vault-fund'
 
 const SUI_TYPE = '0x2::sui::SUI'
 const VSUI_TYPE = '0x549e8b69270defbfafd4f94e17ec44cdbdd99820b33bda2278dea3b9a32d3f55::cert::CERT'
@@ -61,7 +62,12 @@ export function makeVoloStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
         }
 
         const tx = new Transaction()
-        const [suiCoin] = tx.splitCoins(tx.gas, [amountMist])
+        // Source the stake from the treasury vault (policy-enforced) when wired.
+        const suiCoin = fundSui(tx, ctx, amountMist, {
+          protocol: '0x0',
+          kind: 'stake',
+          memo: 'volo liquid stake',
+        })
         const vsui = await stakeTovSuiPTB(tx as never, suiCoin as never)
         tx.transferObjects([vsui as never], ctx.agentAddress)
 
