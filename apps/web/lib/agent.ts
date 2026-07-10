@@ -40,16 +40,15 @@ function isSuiAddress(s: string): boolean {
 
 // ─── tool context ─────────────────────────────────────────────────────────────
 interface ToolContext {
-  /** The signed-in / connected wallet, used as the default "my" subject. */
+  /** The signed-in / connected wallet (the owner). */
   walletAddress: string | null
+  /** The owner's Lyra agent — the address that holds funds + executes on-chain. */
+  agentAddress: string | null
 }
 
 // ─── tool implementations ─────────────────────────────────────────────────────
 
-async function getBalanceTool(args: Record<string, unknown>, ctx: ToolContext) {
-  const addr = (typeof args.address === 'string' && args.address) || ctx.walletAddress
-  if (!addr || !isSuiAddress(addr))
-    return { error: 'no valid Sui address (connect a wallet or pass one)' }
+async function fetchBalance(addr: string) {
   const [suiBal, all] = await Promise.all([
     sui.getBalance({ owner: addr, coinType: SUI_COIN_TYPE }),
     sui.getAllBalances({ owner: addr }).catch(() => []),
@@ -64,6 +63,29 @@ async function getBalanceTool(args: Record<string, unknown>, ctx: ToolContext) {
     suiMist: suiBal.totalBalance,
     otherCoins: coins,
   }
+}
+
+async function getBalanceTool(args: Record<string, unknown>, ctx: ToolContext) {
+  // An explicit address wins (e.g. "balance of 0x…").
+  if (typeof args.address === 'string' && args.address) {
+    if (!isSuiAddress(args.address)) return { error: 'invalid Sui address' }
+    return await fetchBalance(args.address)
+  }
+  // Otherwise report BOTH the Lyra agent (the actor — what supply/borrow/stake/swap
+  // spend from) AND the connected wallet, so "my balance" is never ambiguous. Agent
+  // first: it's the subject of this console.
+  const out: Record<string, unknown> = {}
+  if (ctx.agentAddress && isSuiAddress(ctx.agentAddress)) {
+    out.agent = await fetchBalance(ctx.agentAddress)
+  }
+  if (ctx.walletAddress && isSuiAddress(ctx.walletAddress)) {
+    out.connectedWallet = await fetchBalance(ctx.walletAddress)
+  }
+  if (!out.agent && !out.connectedWallet)
+    return { error: 'no valid address (connect a wallet or pass one)' }
+  out.note =
+    'The AGENT executes on-chain actions and spends from its own balance — fund the agent address to let it act. The connected wallet is the owner that authorizes it.'
+  return out
 }
 
 async function portfolioTool(args: Record<string, unknown>, ctx: ToolContext) {
@@ -305,13 +327,13 @@ const TOOLS = [
     function: {
       name: 'get_balance',
       description:
-        'Get the SUI balance (and other coin balances) of a Sui address. Defaults to the connected wallet.',
+        'Get SUI + coin balances. With no address, returns BOTH the user\'s Lyra agent (the wallet that holds funds and executes actions) and their connected wallet — present both, labeled. Pass an address to query just that one.',
       parameters: {
         type: 'object',
         properties: {
           address: {
             type: 'string',
-            description: 'Sui 0x address. Defaults to the connected wallet.',
+            description: 'Optional Sui 0x address. Omit to get the agent + connected wallet.',
           },
         },
       },
@@ -480,16 +502,21 @@ export async function runAgent(
 
   const walletAddress =
     opts.authedAddress && isSuiAddress(opts.authedAddress) ? opts.authedAddress : null
-  const ctx: ToolContext = { walletAddress }
 
   // When signed in, expose the plugin-onchain lending/staking tools bound to the
   // owner's derived agent (executed inline under policy). Nulled out when not
   // signed in (no owner to derive) or no master secret — then read + propose only.
   const onchain = walletAddress ? ownerOnchain(walletAddress) : null
+  const agentAddress = onchain?.agentAddress ?? null
+  const ctx: ToolContext = { walletAddress, agentAddress }
   const TOOL_LIST = onchain ? [...TOOLS, ...onchain.schemas] : TOOLS
 
   const sys = walletAddress
-    ? `${SYSTEM_PROMPT}\nThe user's connected Sui wallet is ${walletAddress}. When they say "my", treat that as this address — call tools with no address (they default to it) and never ask them to paste an address.`
+    ? `${SYSTEM_PROMPT}\nThe user's connected Sui wallet (the OWNER) is ${walletAddress}.${
+        agentAddress
+          ? `\nTheir Lyra AGENT address is ${agentAddress} — this is the wallet that holds funds and executes on-chain actions (supply/borrow/stake/swap spend from it). To fund/deposit, the user sends SUI or coins to this AGENT address. When they ask "show/what is my agent address", answer with ${agentAddress}.`
+          : ''
+      }\nWhen they say "my balance" call get_balance with no address — it returns BOTH the agent and the connected wallet; present both, labeled, and note the agent is the one that acts. Never ask them to paste an address.`
     : `${SYSTEM_PROMPT}\nThe user is not signed in, so there is no connected wallet. If they ask about "my" balance/portfolio, ask them to connect their Sui wallet (top-right) — or answer for a specific address if they give one.\nThe live Lyra policy package on Sui mainnet is ${LYRA_POLICY_PACKAGE_ID}.`
 
   const messages: ChatMessage[] = [{ role: 'system', content: sys }, ...history]
