@@ -17,6 +17,9 @@ import { checkMinimum } from '../minimums'
 import { evaluatePolicy, suiToMist } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
+import { fundSui } from '../vault-fund'
+
+const SUI_SYSTEM_PKG = '0x3'
 
 const SUI_TYPE = '0x2::sui::SUI'
 const SUI_SYSTEM_STATE = '0x5'
@@ -85,7 +88,13 @@ export function makeStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
         if (!validator) return { ok: false, error: 'no active validator found to stake with' }
 
         const tx = new Transaction()
-        const [coin] = tx.splitCoins(tx.gas, [amountMist])
+        // Source the stake from the treasury vault (policy-enforced) when one is
+        // wired; otherwise from the agent's gas coin (single-key mode).
+        const coin = fundSui(tx, ctx, amountMist, {
+          protocol: SUI_SYSTEM_PKG,
+          kind: 'stake',
+          memo: `stake ${args.amount} SUI`,
+        })
         tx.moveCall({
           target: '0x3::sui_system::request_add_stake',
           arguments: [tx.object(SUI_SYSTEM_STATE), coin, tx.pure.address(validator.address)],

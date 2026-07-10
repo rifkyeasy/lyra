@@ -23,6 +23,7 @@ import onchainPlugin, {
   type OnchainRuntimeContext,
 } from 'lyra-plugin-onchain'
 import { zodToJsonSchema } from 'zod-to-json-schema'
+import { resolveOwnerVault } from '@/lib/vault'
 
 interface ToolSchema {
   type: 'function'
@@ -56,8 +57,13 @@ const WEB_TOOLS = new Set<string>([
   'deepbook.markets',
 ])
 
-function buildCtx(owner: string): OnchainRuntimeContext {
+async function buildCtx(owner: string): Promise<OnchainRuntimeContext> {
   const keypair = deriveAgentKeypair(owner)
+  // Resolve the owner's on-chain treasury vault (+ its policy) so the DeFi tools
+  // source SUI from the vault via the policy-gated vault_spend instead of the
+  // agent's own coin. Best-effort: if the owner hasn't provisioned a vault, the
+  // tools fall back to the agent's SUI (single-key mode) — nothing breaks.
+  const ov = await resolveOwnerVault(owner).catch(() => null)
   return {
     client: makeSuiClient('mainnet'), // honours LYRA_RPC_URL
     keypair,
@@ -65,6 +71,10 @@ function buildCtx(owner: string): OnchainRuntimeContext {
     network: 'mainnet',
     policy: policyFromEnv(process.env),
     packageId: process.env.LYRA_PACKAGE_ID,
+    policyObjectId: ov?.policyId,
+    vaultId: ov?.vaultId,
+    vaultMist: ov?.vaultMist,
+    ownerAddress: owner,
     agentDir: '/tmp/lyra-web',
   }
 }
@@ -82,10 +92,10 @@ export interface OwnerOnchain {
  * them under the policy gate. Returns null if the stack can't init (e.g. no
  * master secret configured) — the web agent then falls back to read + propose.
  */
-export function ownerOnchain(owner: string): OwnerOnchain | null {
+export async function ownerOnchain(owner: string): Promise<OwnerOnchain | null> {
   if (!process.env.LYRA_MASTER_SECRET) return null
   try {
-    const ctx = buildCtx(owner)
+    const ctx = await buildCtx(owner)
     const tools: ToolDef[] = []
     const pluginCtx = {
       registerTool: (t: ToolDef) => {

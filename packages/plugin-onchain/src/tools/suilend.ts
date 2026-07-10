@@ -34,6 +34,7 @@ import { checkMinimum } from '../minimums'
 import { evaluatePolicy, suiToMist } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
+import { fundSui } from '../vault-fund'
 
 const SUI_TYPE = '0x2::sui::SUI'
 // Canonical + long-form SUI coin types (reserve maps may use either).
@@ -158,7 +159,12 @@ export function makeSuilendSupply(ctx: OnchainRuntimeContext): ToolDef<AmountArg
         const existing = await findObligation(ctx)
         const tx = new Transaction()
         tx.setSender(ctx.agentAddress)
-        const [coin] = tx.splitCoins(tx.gas, [amountMist])
+        // Source the supply from the treasury vault (policy-enforced) when wired.
+        const coin = fundSui(tx, ctx, amountMist, {
+          protocol: '0x0',
+          kind: 'supply',
+          memo: 'suilend supply',
+        })
         // The @suilend/sdk@1.1.x SDK carries its own nested @mysten/sui copy, so
         // TS sees a distinct Transaction class — cast at the boundary. The two
         // copies interop at runtime (verified with a live mainnet dry-run).

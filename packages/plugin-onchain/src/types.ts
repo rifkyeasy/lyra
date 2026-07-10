@@ -23,6 +23,27 @@ export interface OnchainRuntimeContext {
   packageId?: string
   /** Shared `AgentPolicy` object id. When set, writes compose an on-chain receipt + enforcement. */
   policyObjectId?: string
+  /**
+   * Treasury `Vault<SUI>` object id bound to `policyObjectId`. When set (together
+   * with `policyObjectId` + `packageId`), write tools source their SUI from the
+   * vault via the policy-gated `vault_spend` instead of the agent's gas coin — so
+   * the vault is the single fund source and every deployment is enforced on-chain.
+   * When unset, tools fall back to the agent's own SUI (single-key mode).
+   */
+  vaultId?: string
+  /**
+   * The vault/policy owner address. Audit `ActionReceipt`s from `vault_spend` are
+   * sent here (falls back to the agent when unset). The owner also receives any
+   * funds swept back to the treasury.
+   */
+  ownerAddress?: string
+  /**
+   * Snapshot of the vault's SUI balance (MIST, as a string) at ctx-build time.
+   * A funding heuristic: when the vault can't cover an action, tools fall back to
+   * the agent's own SUI so the action still works (the on-chain `vault_spend` is
+   * the authoritative gate). Absent/`"0"` ⇒ always fall back.
+   */
+  vaultMist?: string
   /** Walrus network for receipt/memory storage (defaults to `network`). */
   walrusNetwork?: SuiNetwork
   agentDir: string
