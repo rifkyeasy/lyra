@@ -1,5 +1,6 @@
 'use client'
 
+import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   useCurrentAccount,
@@ -37,6 +38,7 @@ const SIGN_TIMEOUT_MS = 60_000
  * iron-session cookie server-side. No transactions are sent.
  */
 export function useSuiAuth(): SuiAuth {
+  const pathname = usePathname()
   const account = useCurrentAccount()
   const { mutateAsync: signPersonalMessage } = useSignPersonalMessage()
   const { mutateAsync: disconnect } = useDisconnectWallet()
@@ -135,8 +137,11 @@ export function useSuiAuth(): SuiAuth {
     }
   }, [disconnect])
 
-  // Auto-trigger sign-in the moment a wallet connects, if no session exists.
+  // Auto-trigger sign-in the moment a wallet connects, if no session exists —
+  // but ONLY inside the console. Elsewhere (e.g. the marketing homepage) connecting
+  // a wallet must not pop a sign-message prompt; the sign-in belongs to the console.
   useEffect(() => {
+    if (!pathname?.startsWith('/console')) return
     if (!isConnected || !address) return
     if (status !== 'unauthenticated') return
     if (sessionAddress && sessionAddress.toLowerCase() === address.toLowerCase()) return
@@ -145,7 +150,7 @@ export function useSuiAuth(): SuiAuth {
       void signIn()
     }, 200)
     return () => clearTimeout(t)
-  }, [isConnected, address, status, sessionAddress, signIn])
+  }, [pathname, isConnected, address, status, sessionAddress, signIn])
 
   // If the connected wallet address no longer matches the session, clear it.
   useEffect(() => {

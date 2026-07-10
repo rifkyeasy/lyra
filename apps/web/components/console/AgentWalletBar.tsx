@@ -13,6 +13,7 @@ import { shortAddress } from '@/lib/format'
 import { CLOCK, SUI_TYPE } from '@/lib/onchain-constants'
 import { useSignAndExecuteTransaction } from '@mysten/dapp-kit'
 import { Transaction } from '@mysten/sui/transactions'
+import QRCode from 'qrcode'
 import { useCallback, useEffect, useState } from 'react'
 
 type VaultInfo = {
@@ -42,6 +43,9 @@ export function AgentWalletBar() {
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [result, setResult] = useState<TxResult | null>(null)
+  const [qrSvg, setQrSvg] = useState<string | null>(null)
+  const [showQr, setShowQr] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const refresh = useCallback(() => {
     fetch('/api/agent', { cache: 'no-store' })
@@ -58,6 +62,23 @@ export function AgentWalletBar() {
     const t = setInterval(refresh, 15000)
     return () => clearInterval(t)
   }, [isAuthed, refresh])
+
+  // QR of the agent address so the owner can scan to deposit SUI/coins into it.
+  // SVG (not a data: URI) keeps it CSP-safe.
+  const agentAddr = info?.agent
+  useEffect(() => {
+    if (!agentAddr) {
+      setQrSvg(null)
+      return
+    }
+    QRCode.toString(agentAddr, {
+      type: 'svg',
+      margin: 1,
+      color: { dark: '#0b0e15', light: '#ffffff' },
+    })
+      .then(setQrSvg)
+      .catch(() => setQrSvg(null))
+  }, [agentAddr])
 
   if (!isAuthed) {
     return <Bar>Sign in (top-right) to provision your policy-bound agent vault.</Bar>
@@ -186,6 +207,14 @@ export function AgentWalletBar() {
         >
           {shortAddress(agent, 6, 4)} ↗
         </a>
+        <button
+          type="button"
+          onClick={() => setShowQr(v => !v)}
+          className="rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[10.5px] text-[var(--color-ink)] transition-colors hover:border-[var(--color-ink-3)]"
+          aria-expanded={showQr}
+        >
+          {showQr ? 'hide QR' : 'deposit ⊞'}
+        </button>
         <span className="text-[var(--color-ink-3)]">gas {fmt(info.agentMist)}</span>
         {vault ? (
           <span className="text-[var(--color-ink-3)]">· vault {fmt(vault.vaultMist)} SUI</span>
@@ -222,6 +251,36 @@ export function AgentWalletBar() {
 
         {msg ? <span className="text-[var(--color-ink-3)]">{msg}</span> : null}
       </div>
+
+      {showQr ? (
+        <div className="flex flex-col items-center gap-2 border-t border-[var(--color-border)] px-5 py-4">
+          {qrSvg ? (
+            <div
+              className="h-40 w-40 rounded-lg bg-white p-2 [&>svg]:h-full [&>svg]:w-full"
+              // biome-ignore lint/security/noDangerouslySetInnerHtml: qrcode's own SVG, no user input
+              dangerouslySetInnerHTML={{ __html: qrSvg }}
+            />
+          ) : (
+            <div className="h-40 w-40 rounded-lg bg-[var(--color-cream-deep)]" />
+          )}
+          <div className="text-center text-[11px] text-[var(--color-ink-3)]">
+            Scan to deposit SUI or coins into your agent
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard?.writeText(agent).then(() => {
+                setCopied(true)
+                setTimeout(() => setCopied(false), 1500)
+              })
+            }}
+            className="max-w-full truncate rounded border border-[var(--color-border)] px-2 py-1 text-[10.5px] text-[var(--color-ink)] transition-colors hover:border-[var(--color-ink-3)]"
+            title="copy agent address"
+          >
+            {copied ? 'copied ✓' : `${agent}  ·  copy`}
+          </button>
+        </div>
+      ) : null}
 
       {vault ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-[var(--color-border)] px-5 py-1.5">

@@ -43,6 +43,7 @@
       ".claude",
       ".vercel",
       "apps/web",
+      "apps/automation",
       "bun.lock",
       ".changeset",
       "test/local",
