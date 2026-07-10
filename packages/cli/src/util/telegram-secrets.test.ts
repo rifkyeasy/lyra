@@ -3,13 +3,13 @@ import { looksLikeBotToken, parseAllowedUserIds, telegramSecretsFromEnv } from '
 
 describe('looksLikeBotToken', () => {
   it('accepts a real-shaped token', () => {
-    expect(looksLikeBotToken('8776805236:AAGgfvp2AwYBvDc3COYfjC9m8w2s0e4t4hw')).toBe(true)
+    expect(looksLikeBotToken('123456789:AAFAKEfixtureTokenForUnitTestsOnly00')).toBe(true)
   })
 
   it('rejects empty / wrong delimiters', () => {
     expect(looksLikeBotToken('')).toBe(false)
-    expect(looksLikeBotToken('8776805236-AAGgfvp2AwYBvDc3COYfjC9m8w2s0e4t4hw')).toBe(false)
-    expect(looksLikeBotToken('AAGgfvp2AwYBvDc3COYfjC9m8w2s0e4t4hw')).toBe(false)
+    expect(looksLikeBotToken('123456789-AAFAKEfixtureTokenForUnitTestsOnly00')).toBe(false)
+    expect(looksLikeBotToken('AAFAKEfixtureTokenForUnitTestsOnly00')).toBe(false)
   })
 
   it('rejects too-short secret half', () => {
@@ -17,7 +17,7 @@ describe('looksLikeBotToken', () => {
   })
 
   it('trims surrounding whitespace before checking', () => {
-    expect(looksLikeBotToken('  8731160904:AAH8FQ3CLrE8-WAfZtDeOTqmpVgOFLg8GyU\n')).toBe(true)
+    expect(looksLikeBotToken('  987654321:AAFAKEfixtureTokenForUnitTestsOnly11\n')).toBe(true)
   })
 })
 
@@ -81,22 +81,22 @@ describe('telegramSecretsFromEnv', () => {
   })
 
   it('parses token + chat id + username', () => {
-    process.env.TELEGRAM_BOT_TOKEN = '8731160904:AAH8FQ3CLrE8-WAfZtDeOTqmpVgOFLg8GyU'
-    process.env.TELEGRAM_CHAT_ID = '1140813034'
+    process.env.TELEGRAM_BOT_TOKEN = '987654321:AAFAKEfixtureTokenForUnitTestsOnly11'
+    process.env.TELEGRAM_CHAT_ID = '100000001'
     process.env.TELEGRAM_USERNAME = 'lyra_test_bot'
     expect(telegramSecretsFromEnv()).toEqual({
-      botToken: '8731160904:AAH8FQ3CLrE8-WAfZtDeOTqmpVgOFLg8GyU',
+      botToken: '987654321:AAFAKEfixtureTokenForUnitTestsOnly11',
       botUsername: 'lyra_test_bot',
-      allowedUserIds: [1140813034],
+      allowedUserIds: [100000001],
     })
   })
 
   it('open access (empty allowlist) when no chat id', () => {
-    process.env.TELEGRAM_BOT_TOKEN = '8731160904:AAH8FQ3CLrE8-WAfZtDeOTqmpVgOFLg8GyU'
+    process.env.TELEGRAM_BOT_TOKEN = '987654321:AAFAKEfixtureTokenForUnitTestsOnly11'
     Reflect.deleteProperty(process.env, 'TELEGRAM_CHAT_ID')
     Reflect.deleteProperty(process.env, 'TELEGRAM_USERNAME')
     expect(telegramSecretsFromEnv()).toEqual({
-      botToken: '8731160904:AAH8FQ3CLrE8-WAfZtDeOTqmpVgOFLg8GyU',
+      botToken: '987654321:AAFAKEfixtureTokenForUnitTestsOnly11',
       botUsername: undefined,
       allowedUserIds: [],
     })
