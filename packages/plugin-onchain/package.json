@@ -1,6 +1,6 @@
 {
   "name": "lyra-plugin-onchain",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "description": "The Sui on-chain tools for Lyra: SUI transfers, DeepBook market data, Walrus receipts/memory — every write policy-checked, simulated, and recorded on-chain via lyra::policy",
   "license": "MIT",
@@ -37,7 +37,7 @@
     "@scallop-io/sui-scallop-sdk": "^2.4.5",
     "@suilend/sdk": "1.1.99",
     "@suilend/sui-fe": "0.3.49",
-    "lyra-core": "^0.1.2",
+    "lyra-core": "^0.1.10",
     "navi-sdk": "^1.7.3",
     "zod": "^3.23.8"
   }

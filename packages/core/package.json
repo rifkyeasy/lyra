@@ -1,6 +1,6 @@
 {
   "name": "lyra-core",
-  "version": "0.1.2",
+  "version": "0.1.10",
   "type": "module",
   "description": "The SDK for lyra, a Sui-native policy-aware AI treasury assistant: brain, local memory + storage, the policy/approval engine, and the Sui agent keypair + chain helpers",
   "license": "MIT",
