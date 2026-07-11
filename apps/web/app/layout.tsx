@@ -67,10 +67,11 @@ export const metadata: Metadata = {
   creator: 'lyra',
   publisher: 'lyra',
   icons: {
-    // Light-scheme favicons are the default. Color-scheme-aware overrides
-    // for dark mode are injected as explicit <link media> tags in <head>
-    // below, since Next's metadata.icons does not support media queries.
+    // The theme-adaptive SVG comes FIRST — Chrome/Edge/Firefox prefer it and
+    // re-color the mark live with the browser's light/dark theme (see favicon.svg).
+    // The PNGs are the Safari fallback (no SVG-favicon support there).
     icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
       { url: '/icons/light/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
       { url: '/icons/light/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
     ],
@@ -155,51 +156,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <head>
         <ThemeScript />
         {/*
-          Color-scheme-aware favicons. Next's metadata.icons cannot express
-          media queries, so the dark-scheme overrides live here as explicit
-          <link media> tags. Light is the default (also set via metadata.icons);
-          browsers honoring prefers-color-scheme pick the dark set when active.
+          Theme-adaptive favicon: a single SVG (declared in metadata.icons) whose
+          mark re-colors for light/dark via an embedded @media (prefers-color-scheme)
+          — Chrome/Edge/Firefox honor it and swap it live with the browser theme,
+          so the mark is never a dark logo on a dark tab. Safari (no SVG favicon
+          support) falls back to the PNG/ico in metadata.icons.
         */}
-        <link
-          rel="icon"
-          type="image/png"
-          sizes="32x32"
-          href="/icons/light/favicon-32x32.png"
-          media="(prefers-color-scheme: light)"
-        />
-        <link
-          rel="icon"
-          type="image/png"
-          sizes="16x16"
-          href="/icons/light/favicon-16x16.png"
-          media="(prefers-color-scheme: light)"
-        />
-        <link
-          rel="icon"
-          type="image/png"
-          sizes="32x32"
-          href="/icons/dark/favicon-32x32.png"
-          media="(prefers-color-scheme: dark)"
-        />
-        <link
-          rel="icon"
-          type="image/png"
-          sizes="16x16"
-          href="/icons/dark/favicon-16x16.png"
-          media="(prefers-color-scheme: dark)"
-        />
-        <link
-          rel="apple-touch-icon"
-          sizes="180x180"
-          href="/icons/light/apple-touch-icon.png"
-          media="(prefers-color-scheme: light)"
-        />
-        <link
-          rel="apple-touch-icon"
-          sizes="180x180"
-          href="/icons/dark/apple-touch-icon.png"
-          media="(prefers-color-scheme: dark)"
-        />
       </head>
       <body>
         <ThemeProvider>
