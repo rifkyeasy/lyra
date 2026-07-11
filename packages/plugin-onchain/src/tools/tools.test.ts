@@ -12,6 +12,7 @@
 
 import { describe, expect, test } from 'bun:test'
 import type { PluginContext, ToolDef } from 'lyra-core'
+import { capabilitySummary, TOOLS, WEB_TOOL_NAMES } from '../catalog'
 import plugin from '../index'
 import type { OnchainRuntimeContext } from '../types'
 import { makeVoloStake } from './liquid-stake'
@@ -74,6 +75,26 @@ describe('onchain plugin registration', () => {
     ]) {
       expect(names).toContain(expected)
     }
+  })
+
+  test('registered tools EXACTLY match the catalog (single source of truth)', () => {
+    const names: string[] = []
+    const ctx = {
+      registerTool: (def: ToolDef) => names.push(def.name),
+      registerListener: () => {},
+      addHook: () => {},
+      network: 'mainnet',
+      agentDir: '/tmp',
+      agentId: 'test',
+      onchain: stubCtx(),
+    } as unknown as PluginContext
+    plugin.register(ctx)
+    // Nothing registered outside the catalog, and nothing in the catalog unregistered.
+    expect(new Set(names)).toEqual(new Set(TOOLS.map(t => t.name)))
+    expect(names.length).toBe(TOOLS.length) // no duplicate names
+    // The web set + guidance are DERIVED from the same catalog.
+    for (const web of WEB_TOOL_NAMES) expect(names).toContain(web)
+    expect(capabilitySummary()).toContain('walrus.stake')
   })
 
   test('registers nothing without an onchain runtime (safe no-op for loaders)', () => {

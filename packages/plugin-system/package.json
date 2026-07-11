@@ -1,6 +1,6 @@
 {
   "name": "lyra-plugin-system",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "OS + workspace tools for lyra: fs, shell, code, web, headless browser, skills — with a multi-tier execution sandbox",
   "license": "MIT",
@@ -28,7 +28,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "lyra-core": "^0.2.0",
+    "lyra-core": "^0.2.1",
     "agent-browser": "^0.26.0",
     "zod": "^3.24.1"
   }

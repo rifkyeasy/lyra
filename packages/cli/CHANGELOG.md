@@ -1,5 +1,24 @@
 # lyra-ai-agent
 
+## 0.2.1
+
+### Patch Changes
+
+- Single tool catalog drives registration, the web tool set, and the guidance.
+
+  Every on-chain tool is now declared once in `catalog.ts` (`{ name, make, web, blurb }`).
+  The plugin registers by iterating it, `WEB_TOOL_NAMES` is derived for the console,
+  and the agent guidance's capability list is generated from the catalog blurbs — so
+  adding a tool is one catalog entry (plus the tool file), and it reaches the CLI,
+  gateway, web console, and the model's guidance with no further edits.
+
+- Updated dependencies
+  - lyra-plugin-onchain@0.2.1
+  - lyra-core@0.2.1
+  - lyra-gateway@0.2.1
+  - lyra-plugin-system@0.2.1
+  - lyra-plugin-telegram@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

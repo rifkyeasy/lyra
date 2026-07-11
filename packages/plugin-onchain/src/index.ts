@@ -22,41 +22,10 @@
 // navi-sdk → axios → follow-redirects, which crashes Bun at import otherwise.
 import './capture-shim'
 import type { NativePlugin, ToolDef } from 'lyra-core'
-import { makeAccountInfo, makeSuiBalance } from './tools/balance'
-import { makeCetusQuote } from './tools/cetus'
-import { makeDeepbookMarkets } from './tools/deepbook'
-import { makeDefiYields } from './tools/defillama'
-import { makeVoloStake, makeVoloUnstake } from './tools/liquid-stake'
-import {
-  makeNaviBorrow,
-  makeNaviMarkets,
-  makeNaviPosition,
-  makeNaviRepay,
-  makeNaviSupply,
-  makeNaviWithdraw,
-} from './tools/navi'
-import { makePolicyCreate, makePolicyShow } from './tools/policy'
-import { makeProtocolsList } from './tools/protocols'
-import {
-  makeScallopMarkets,
-  makeScallopPosition,
-  makeScallopSupply,
-  makeScallopWithdraw,
-} from './tools/scallop'
-import { makeSuiSend } from './tools/send'
-import { makeStake, makeUnstake } from './tools/stake'
-import {
-  makeSuilendBorrow,
-  makeSuilendPosition,
-  makeSuilendRepay,
-  makeSuilendSupply,
-  makeSuilendWithdraw,
-} from './tools/suilend'
-import { makeSwap } from './tools/swap'
-import { makeWalrusStore } from './tools/walrus'
-import { makeWalrusStake, makeWalrusStaking, makeWalrusUnstake } from './tools/walrus-stake'
+import { TOOLS } from './catalog'
 import type { OnchainRuntimeContext } from './types'
 
+export { TOOLS, WEB_TOOL_NAMES, capabilitySummary, type CatalogEntry } from './catalog'
 export {
   makeSuiClient,
   keypairFromSecret,
@@ -98,45 +67,8 @@ const plugin: NativePlugin = {
     const onchain = (ctx as unknown as { onchain?: OnchainRuntimeContext }).onchain
     if (!onchain) return // soft-init for tests / non-onchain contexts
 
-    ctx.registerTool(makeAccountInfo(onchain) as ToolDef)
-    ctx.registerTool(makeSuiBalance(onchain) as ToolDef)
-    ctx.registerTool(makeSuiSend(onchain) as ToolDef)
-    ctx.registerTool(makeSwap(onchain) as ToolDef)
-    ctx.registerTool(makePolicyShow(onchain) as ToolDef)
-    ctx.registerTool(makePolicyCreate(onchain) as ToolDef)
-    ctx.registerTool(makeWalrusStore(onchain) as ToolDef)
-    ctx.registerTool(makeDeepbookMarkets(onchain) as ToolDef)
-
-    // Discovery + capability map.
-    ctx.registerTool(makeProtocolsList(onchain) as ToolDef)
-    ctx.registerTool(makeDefiYields(onchain) as ToolDef)
-    ctx.registerTool(makeCetusQuote(onchain) as ToolDef)
-
-    // Lending (the two largest Sui money markets).
-    ctx.registerTool(makeScallopMarkets(onchain) as ToolDef)
-    ctx.registerTool(makeScallopPosition(onchain) as ToolDef)
-    ctx.registerTool(makeScallopSupply(onchain) as ToolDef)
-    ctx.registerTool(makeScallopWithdraw(onchain) as ToolDef)
-    ctx.registerTool(makeNaviMarkets(onchain) as ToolDef)
-    ctx.registerTool(makeNaviPosition(onchain) as ToolDef)
-    ctx.registerTool(makeNaviSupply(onchain) as ToolDef)
-    ctx.registerTool(makeNaviWithdraw(onchain) as ToolDef)
-    ctx.registerTool(makeNaviBorrow(onchain) as ToolDef)
-    ctx.registerTool(makeNaviRepay(onchain) as ToolDef)
-    ctx.registerTool(makeSuilendSupply(onchain) as ToolDef)
-    ctx.registerTool(makeSuilendWithdraw(onchain) as ToolDef)
-    ctx.registerTool(makeSuilendBorrow(onchain) as ToolDef)
-    ctx.registerTool(makeSuilendRepay(onchain) as ToolDef)
-    ctx.registerTool(makeSuilendPosition(onchain) as ToolDef)
-
-    // Staking: native delegation (min 1 SUI) + Volo liquid staking (vSUI).
-    ctx.registerTool(makeStake(onchain) as ToolDef)
-    ctx.registerTool(makeUnstake(onchain) as ToolDef)
-    ctx.registerTool(makeVoloStake(onchain) as ToolDef)
-    ctx.registerTool(makeVoloUnstake(onchain) as ToolDef)
-    ctx.registerTool(makeWalrusStake(onchain) as ToolDef)
-    ctx.registerTool(makeWalrusUnstake(onchain) as ToolDef)
-    ctx.registerTool(makeWalrusStaking(onchain) as ToolDef)
+    // Every tool is declared once in the catalog; registration just iterates it.
+    for (const tool of TOOLS) ctx.registerTool(tool.make(onchain) as ToolDef)
   },
 }
 
