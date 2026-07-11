@@ -36,6 +36,15 @@ export const PROTOCOLS: ProtocolCapability[] = [
     tools: ['walrus.store'],
   },
   {
+    id: 'walrus-staking',
+    name: 'Walrus staking',
+    category: 'staking',
+    read: true,
+    execute: true,
+    tools: ['walrus.stake', 'walrus.unstake', 'walrus.staking'],
+    note: 'stake WAL to a Walrus storage node to earn rewards + secure decentralized storage (min 1 WAL)',
+  },
+  {
     id: 'deepbook',
     name: 'DeepBook',
     category: 'clob',

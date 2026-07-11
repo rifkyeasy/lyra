@@ -14,14 +14,18 @@
 
 import { describe, expect, test } from 'bun:test'
 import { Transaction } from '@mysten/sui/transactions'
+import { MAINNET_WALRUS_PACKAGE_CONFIG, WalrusClient } from '@mysten/walrus'
 import { LENDING_MARKET_ID, LENDING_MARKET_TYPE, SuilendClient } from '@suilend/sdk/client'
 import { stakeTovSuiPTB } from 'navi-sdk'
 import { keypairFromSecret, makeSuiClient } from '../client'
+import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
 import { makeScallopMarkets } from './scallop'
 import { makeSuilendPosition } from './suilend'
+import { makeWalrusStaking } from './walrus-stake'
 
 const SUI = '0x2::sui::SUI'
+const WAL = '0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL'
 const RUN = process.env.LYRA_RUN_INTEGRATION === '1' && !!process.env.LYRA_AGENT_KEY
 const ONE_SUI = 1_000_000_000n
 
@@ -100,6 +104,35 @@ describe.skipIf(!RUN)('mainnet dry-run integration', () => {
     expect(await simStatus(ctx, tx)).toBe('success')
   }, 45_000)
 
+  test('Walrus WAL stake (1 WAL → node) simulates success', async () => {
+    const ctx = realCtx()
+    const walrus = new WalrusClient({ network: 'mainnet', suiClient: ctx.client as never })
+    const [stakingObj, state, coins] = await Promise.all([
+      walrus.stakingObject(),
+      walrus.systemState(),
+      ctx.client.getCoins({ owner: ctx.agentAddress, coinType: WAL }),
+    ])
+    const nodeId = state.committee.members[0]?.node_id
+    const walCoin = coins.data[0]?.coinObjectId
+    if (!nodeId || !walCoin) throw new Error('no committee node or WAL coin available')
+    const tx = new Transaction()
+    tx.setSender(ctx.agentAddress)
+    const [toStake] = tx.splitCoins(tx.object(walCoin), [1_000_000_000n]) // 1 WAL (Walrus min)
+    const staked = tx.moveCall({
+      target: `${stakingObj.package_id}::staking::stake_with_pool`,
+      arguments: [
+        tx.object(MAINNET_WALRUS_PACKAGE_CONFIG.stakingPoolId),
+        toStake,
+        tx.pure.id(nodeId),
+      ],
+    })
+    tx.transferObjects([staked], ctx.agentAddress)
+    // Use the tool's own dry-run path (dryRunTransactionBlock) — devInspect can't
+    // model a split from a non-gas coin object, but dryRun executes it faithfully.
+    const sim = await simulate(ctx.client, tx, ctx.agentAddress)
+    expect(sim.ok).toBe(true)
+  }, 45_000)
+
   test('read-only tools return live data', async () => {
     const ctx = realCtx()
     const position = await makeSuilendPosition(ctx).handler({})
@@ -107,5 +140,8 @@ describe.skipIf(!RUN)('mainnet dry-run integration', () => {
 
     const markets = await makeScallopMarkets(ctx).handler({ coins: 'sui' })
     expect(markets.ok).toBe(true)
+
+    const walStaking = await makeWalrusStaking(ctx).handler({})
+    expect(walStaking.ok).toBe(true)
   }, 45_000)
 })

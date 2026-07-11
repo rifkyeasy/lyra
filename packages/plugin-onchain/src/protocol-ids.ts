@@ -25,6 +25,9 @@ export const PROTOCOL_IDS = {
   suilend: '0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf',
   volo: '0x68d22cf8bdbcd11ecba1e094922873e4080d4d11133e2443fddda0bfd11dae20',
   scallop: '0xde5c09ad171544aa3724dc67216668c80e754860f419136a68d78504eb2e2805',
+  // The type-defining (original) Walrus package — where `StakedWal` lives — used
+  // as the stable allowlist tag for WAL staking (survives Walrus package upgrades).
+  walrusStaking: '0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77',
 } as const
 
 export type ProtocolKey = keyof typeof PROTOCOL_IDS
@@ -36,6 +39,7 @@ export const PROTOCOL_LABELS: Record<string, string> = {
   [PROTOCOL_IDS.suilend]: 'Suilend',
   [PROTOCOL_IDS.volo]: 'Volo (vSUI)',
   [PROTOCOL_IDS.scallop]: 'Scallop',
+  [PROTOCOL_IDS.walrusStaking]: 'Walrus staking',
 }
 
 /** The allowlistable protocols in display order, for building the owner UI. */
@@ -45,4 +49,5 @@ export const ALLOWLISTABLE_PROTOCOLS: { key: ProtocolKey; id: string; label: str
   { key: 'suilend', id: PROTOCOL_IDS.suilend, label: 'Suilend' },
   { key: 'volo', id: PROTOCOL_IDS.volo, label: 'Volo (vSUI)' },
   { key: 'scallop', id: PROTOCOL_IDS.scallop, label: 'Scallop' },
+  { key: 'walrusStaking', id: PROTOCOL_IDS.walrusStaking, label: 'Walrus staking' },
 ]

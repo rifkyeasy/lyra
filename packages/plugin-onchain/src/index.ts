@@ -7,6 +7,7 @@
  *   Transfers:   sui.send            (policy → simulate → execute → on-chain receipt)
  *   Policy:      policy.show, policy.create   (lyra::policy AgentPolicy)
  *   Storage:     walrus.store        (durable, verifiable receipts/memory)
+ *   WAL staking: walrus.stake, walrus.unstake, walrus.staking  (Walrus storage nodes)
  *   Markets:     deepbook.markets    (DeepBook spot mid prices, read-only)
  *
  * Value-moving tools run through policy → simulate → (approval) → execute, and
@@ -53,6 +54,7 @@ import {
 } from './tools/suilend'
 import { makeSwap } from './tools/swap'
 import { makeWalrusStore } from './tools/walrus'
+import { makeWalrusStake, makeWalrusStaking, makeWalrusUnstake } from './tools/walrus-stake'
 import type { OnchainRuntimeContext } from './types'
 
 export {
@@ -132,6 +134,9 @@ const plugin: NativePlugin = {
     ctx.registerTool(makeUnstake(onchain) as ToolDef)
     ctx.registerTool(makeVoloStake(onchain) as ToolDef)
     ctx.registerTool(makeVoloUnstake(onchain) as ToolDef)
+    ctx.registerTool(makeWalrusStake(onchain) as ToolDef)
+    ctx.registerTool(makeWalrusUnstake(onchain) as ToolDef)
+    ctx.registerTool(makeWalrusStaking(onchain) as ToolDef)
   },
 }
 
