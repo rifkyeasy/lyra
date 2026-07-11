@@ -9,10 +9,13 @@
 import { type SuiNetwork, makeSuiClient } from './client'
 import { deriveAgentAddress } from './derive'
 
-// A module keeps its DEFINING package id for types/events: `policy` shipped in
-// the original publish; `vault` was added in the first upgrade.
-const ORIGINAL_PKG = '0x250880a4c1a268da8011b164f599d4e100cefce84f862d36396cd1a943ee8a35'
-const VAULT_PKG = '0xa40689cc541f57af123e90819e73eab8a551e4385ab91bee89d02f6691590211'
+// Types/events are addressed by the id of the package that DEFINES them. The v1
+// package is a single fresh publish (policy, vault, receipt, allowlist, constants
+// all shipped together), so every module shares one id today. These stay separate
+// constants so a FUTURE upgrade can again split the LATEST (moveCall) id from a
+// module's DEFINING id without touching call sites.
+const ORIGINAL_PKG = '0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617'
+const VAULT_PKG = '0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617'
 
 export interface OwnerVault {
   policyId: string

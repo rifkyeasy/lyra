@@ -1,11 +1,12 @@
 {
   "network": "mainnet",
   "package": "lyra",
-  "module": "policy",
-  "packageId": "0x250880a4c1a268da8011b164f599d4e100cefce84f862d36396cd1a943ee8a35",
-  "upgradeCap": "0xa6bb6c7a10a348330572b2b1e951a195bab0646cfab7666a7217b5ab4a225630",
-  "publishDigest": "2Qt4CQLGMHSDsgEA9J9UJsL6u1XmeahgTAYP7upNorpj",
+  "modules": ["allowlist", "constants", "policy", "receipt", "vault"],
+  "packageId": "0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617",
+  "upgradeCap": "0x039cc1dc3ba8a3e451d21469359ac709797ae9b04c1ced747f0de464202c39ba",
+  "publishDigest": "4PagB78iMmREfid2ykRE4NZB6x4jMumEy1Qhs2TTbFWg",
   "publishedBy": "0x46e37419c58981bb69100fa559baa52fd7e219486d75e9dc3f0896fab01d06f5",
-  "publishedAt": "2026-06-17",
-  "suiCliVersion": "1.73.0"
+  "publishedAt": "2026-07-11",
+  "suiCliVersion": "1.75.1",
+  "version": 1
 }

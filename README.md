@@ -8,7 +8,7 @@ chain is the source of truth.
 
 - 🌐 **Live web console:** https://lyraai.space
 - 📦 **npm (CLI):** [`lyra-ai-agent`](https://www.npmjs.com/package/lyra-ai-agent)
-- ⛓️ **Mainnet package:** `0x8ffdbda0bec2e3604757d435c567d52451317ed5752cef8fc5321a1050872cbf`
+- ⛓️ **Mainnet package:** `0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617`
 
 ---
 
@@ -43,7 +43,7 @@ Set the agent + guardrails (e.g. in your shell profile or a `.env`):
 ```bash
 export LYRA_AGENT_KEY=suiprivkey1...        # the agent that signs + pays gas
 export LYRA_NETWORK=mainnet
-export LYRA_PACKAGE_ID=0x8ffdbda0bec2e3604757d435c567d52451317ed5752cef8fc5321a1050872cbf
+export LYRA_PACKAGE_ID=0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617
 export OPENAI_API_KEY=sk-...                 # any OpenAI-compatible key
 export LYRA_LLM_BASE_URL=https://api.openai.com/v1
 export LYRA_LLM_MODEL=gpt-4o-mini

@@ -124,7 +124,7 @@ export function makeSuiSend(ctx: OnchainRuntimeContext): ToolDef<Args> {
         const receipt = res.objectChanges?.find(
           c =>
             c.type === 'created' &&
-            String((c as { objectType?: string }).objectType).endsWith('::policy::ActionReceipt'),
+            String((c as { objectType?: string }).objectType).endsWith('::receipt::ActionReceipt'),
         ) as { objectId?: string } | undefined
 
         return {
