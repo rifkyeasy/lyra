@@ -71,3 +71,7 @@ submission/
 
 # Local-only automation workspace (scripts / experiments) — not tracked
 apps/automation/
+apps/api/
+apps/app/
+apps/landing/
+apps/automate-article/
