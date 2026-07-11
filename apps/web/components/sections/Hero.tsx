@@ -70,7 +70,7 @@ export function Hero() {
           className="font-display text-[clamp(38px,4.8vw,68px)] font-normal leading-[1.02] tracking-[-0.025em] text-white mix-blend-difference"
         >
           <motion.span variants={lineVariants} className="block">
-            Ask. Do anything on-chain,
+            Do anything on-chain,
           </motion.span>
           <motion.span variants={lineVariants} className="block">
             across the Sui network.

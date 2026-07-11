@@ -15,7 +15,7 @@ const FEATURED: Entry = {
   title: 'Verifiable autonomy: the AI advises, code enforces',
   blurb:
     'The core idea behind lyra — why an autonomous agent should never hold keys, and how four deterministic gates make “wrong model” a non-event for your funds.',
-  href: '/safety',
+  href: '/research/verifiable-autonomy',
 }
 
 const ENTRIES: Entry[] = [
@@ -23,31 +23,31 @@ const ENTRIES: Entry[] = [
     tag: 'Architecture',
     title: 'The four-gate write pipeline',
     blurb: 'Policy → simulate (dry-run) → approve → execute. How every PTB is checked before it broadcasts on Sui and returns a tx digest.',
-    href: '/docs/architecture',
+    href: '/research/four-gate-pipeline',
   },
   {
     tag: 'Identity',
     title: 'A Sui address is the agent identity',
     blurb: 'Each agent is a Sui keypair; its on-chain history of policy-checked PTBs and Walrus receipts lets its track record be checked, not just claimed.',
-    href: '/docs/identity',
+    href: '/research/sui-address-identity',
   },
   {
     tag: 'Policy',
     title: 'Policy as code, not prompts',
     blurb: 'Why fund controls live in deterministic code and the on-chain lyra::policy Move package — allowlists, caps, slippage and health-factor floors.',
-    href: '/docs/configuration',
+    href: '/research/policy-as-code',
   },
   {
     tag: 'Runtime',
     title: 'The agent’s brain & memory',
     blurb: 'The OpenAI-compatible brain, local file-based memory, and how context is assembled per turn.',
-    href: '/docs/brain',
+    href: '/research/brain-and-memory',
   },
   {
     tag: 'Runtime',
     title: 'Tools & plugins',
     blurb: 'The tool registry and plugin host that give the agent real capabilities — read, swap, lend, transfer.',
-    href: '/docs/tools',
+    href: '/research/tools-and-plugins',
   },
   {
     tag: 'Source',
