@@ -111,6 +111,17 @@ function collect(checks: ReadonlyArray<readonly [boolean, string]>): string[] {
   return checks.filter(([failed]) => failed).map(([, message]) => message)
 }
 
+/**
+ * Convenience for the write tools: run `evaluatePolicy` (skipped when no policy is
+ * configured) and return a ready `policy blocked: …` message, or null when allowed.
+ * Lets a handler do `const blocked = policyBlock(...); if (blocked) return { ok:false, error: blocked }`.
+ */
+export function policyBlock(policy: SuiPolicy | undefined, action: SuiPolicyAction): string | null {
+  if (!policy) return null
+  const verdict = evaluatePolicy(action, policy)
+  return verdict.allowed ? null : `policy blocked: ${verdict.violations.join('; ')}`
+}
+
 export function evaluatePolicy(
   action: SuiPolicyAction,
   policy: SuiPolicy,

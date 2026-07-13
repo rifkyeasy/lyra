@@ -13,10 +13,10 @@
 import { Transaction } from '@mysten/sui/transactions'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
+import { simulateAndExecute } from '../execute'
 import { checkMinimum } from '../minimums'
-import { evaluatePolicy, suiToMist } from '../policy'
+import { policyBlock, suiToMist } from '../policy'
 import { PROTOCOL_IDS } from '../protocol-ids'
-import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
 import { fundSui } from '../vault-fund'
 
@@ -73,15 +73,13 @@ export function makeStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
         const tooSmall = checkMinimum('stake', amountMist)
         if (tooSmall) return { ok: false, error: tooSmall }
 
-        if (ctx.policy) {
-          const verdict = evaluatePolicy(
-            { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'stake' },
-            ctx.policy,
-          )
-          if (!verdict.allowed) {
-            return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
-          }
-        }
+        const blocked = policyBlock(ctx.policy, {
+          kind: 'transfer',
+          coinType: SUI_TYPE,
+          amountMist,
+          protocol: 'stake',
+        })
+        if (blocked) return { ok: false, error: blocked }
 
         const validator = await resolveValidator(ctx.client, args.validator)
         if (!validator) return { ok: false, error: 'no active validator found to stake with' }
@@ -99,24 +97,11 @@ export function makeStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
           arguments: [tx.object(SUI_SYSTEM_STATE), coin, tx.pure.address(validator.address)],
         })
 
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true, showObjectChanges: true },
-        })
-        if (res.effects?.status?.status !== 'success') {
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        }
-        await ctx.client.waitForTransaction({ digest: res.digest })
-        const staked = res.objectChanges?.find(
+        const exec = await simulateAndExecute(ctx, tx, { showObjectChanges: true })
+        if (!exec.ok) return exec
+        const staked = exec.value.objectChanges?.find(
           c =>
-            c.type === 'created' &&
+            (c as { type?: string }).type === 'created' &&
             String((c as { objectType?: string }).objectType).includes('staking_pool::StakedSui'),
         ) as { objectId?: string } | undefined
 
@@ -128,7 +113,7 @@ export function makeStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
             amountSui: args.amount,
             validator: validator.address,
             validatorName: validator.name || undefined,
-            digest: res.digest,
+            digest: exec.value.digest,
             stakedSuiId: staked?.objectId ?? null,
             status: 'success',
           },
@@ -167,15 +152,13 @@ export function makeUnstake(ctx: OnchainRuntimeContext): ToolDef<UnstakeArgs> {
           if (!stakedId) return { ok: false, error: 'no staked SUI position found to unstake' }
         }
 
-        if (ctx.policy) {
-          const verdict = evaluatePolicy(
-            { kind: 'transfer', coinType: SUI_TYPE, amountMist: 0n, protocol: 'stake' },
-            ctx.policy,
-          )
-          if (!verdict.allowed) {
-            return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
-          }
-        }
+        const blocked = policyBlock(ctx.policy, {
+          kind: 'transfer',
+          coinType: SUI_TYPE,
+          amountMist: 0n,
+          protocol: 'stake',
+        })
+        if (blocked) return { ok: false, error: blocked }
 
         const tx = new Transaction()
         tx.moveCall({
@@ -183,29 +166,15 @@ export function makeUnstake(ctx: OnchainRuntimeContext): ToolDef<UnstakeArgs> {
           arguments: [tx.object(SUI_SYSTEM_STATE), tx.object(stakedId)],
         })
 
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true },
-        })
-        if (res.effects?.status?.status !== 'success') {
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        }
-        await ctx.client.waitForTransaction({ digest: res.digest })
-
+        const exec = await simulateAndExecute(ctx, tx)
+        if (!exec.ok) return exec
         return {
           ok: true,
           data: {
             protocol: 'sui-staking',
             action: 'unstake',
             stakedSuiId: stakedId,
-            digest: res.digest,
+            digest: exec.value.digest,
             status: 'success',
           },
         }
