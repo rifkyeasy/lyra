@@ -19,7 +19,7 @@ import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
 import { type CoinInfo, decimalToBase, resolveCoin } from '../coins'
 import { checkMinimum } from '../minimums'
-import { evaluatePolicy, normalizeCoinType } from '../policy'
+import { normalizeCoinType, policyBlock } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
 import { canFundFromVault, fundSui } from '../vault-fund'
@@ -94,6 +94,119 @@ function sourceAndSink(
   }
 }
 
+interface ResolvedSwap {
+  from: CoinInfo
+  to: CoinInfo
+  amountIn: bigint
+}
+
+/** Resolve both coins (real decimals — never guessed) + parse/validate the amount. */
+async function resolveSwapCoins(
+  ctx: OnchainRuntimeContext,
+  args: { from: string; to: string; amount: string },
+): Promise<ResolvedSwap | { error: string }> {
+  const from = await resolveCoin(ctx.client, args.from)
+  const to = await resolveCoin(ctx.client, args.to)
+  if (!from)
+    return { error: `unknown coin "${args.from}" (specify a known symbol or full coin type)` }
+  if (!to) return { error: `unknown coin "${args.to}" (specify a known symbol or full coin type)` }
+  if (from.type === to.type) return { error: 'from and to are the same coin' }
+  const amountIn = decimalToBase(args.amount, from.decimals)
+  if (amountIn === undefined || amountIn <= 0n) return { error: `invalid amount "${args.amount}"` }
+  if (from.type === SUI_TYPE) {
+    const tooSmall = checkMinimum('swap', amountIn)
+    if (tooSmall) return { error: tooSmall }
+  }
+  return { from, to, amountIn }
+}
+
+interface PickedRoute {
+  provider: string
+  amountOut: number
+  tx: Transaction
+  gasUsed?: string
+}
+
+/**
+ * Try the quoted routes in best-output order, building + simulating each; return
+ * the first that simulates cleanly (some providers build PTBs that revert), or the
+ * collected failures.
+ */
+async function pickCleanRoute(
+  ctx: OnchainRuntimeContext,
+  ag: MetaAg,
+  // biome-ignore lint/suspicious/noExplicitAny: 7k route-quote shape
+  quotes: any[],
+  r: ResolvedSwap,
+  toLabel: string,
+): Promise<PickedRoute | { failures: string[] }> {
+  const me = ctx.agentAddress
+  const failures: string[] = []
+  for (const q of quotes) {
+    const tx = new Transaction()
+    tx.setSender(me)
+    tx.setGasBudget(150_000_000)
+    try {
+      const { coinIn, sink } = sourceAndSink(
+        tx,
+        ctx,
+        r.from,
+        r.to,
+        r.amountIn,
+        `swap to ${toLabel}`,
+      )
+      const coinOut = await ag.swap({ quote: q, signer: me, tx, coinIn: coinIn as never })
+      sink(coinOut as TransactionObjectArgument)
+      const sim = await simulate(ctx.client, tx, me)
+      if (sim.ok) {
+        return {
+          provider: String(q.provider),
+          amountOut: Number(q.amountOut ?? 0),
+          tx,
+          gasUsed: sim.gasUsed,
+        }
+      }
+      failures.push(`${q.provider}: ${sim.reason}`)
+    } catch (e) {
+      failures.push(`${q.provider}: ${(e as Error).message.slice(0, 60)}`)
+    }
+  }
+  return { failures }
+}
+
+/** Sign + execute the chosen route's PTB, wait for indexing, and shape the result. */
+async function executePickedRoute(
+  ctx: OnchainRuntimeContext,
+  picked: PickedRoute,
+  args: { from: string; to: string; amount: string },
+  to: CoinInfo,
+  slippageBps: number,
+): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  const res = await ctx.client.signAndExecuteTransaction({
+    signer: ctx.keypair,
+    transaction: picked.tx,
+    options: { showEffects: true },
+  })
+  if (res.effects?.status?.status !== 'success') {
+    return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
+  }
+  await ctx.client.waitForTransaction({ digest: res.digest })
+  return {
+    ok: true,
+    data: {
+      from: args.from,
+      to: args.to,
+      amountIn: args.amount,
+      amountOut: (picked.amountOut / 10 ** to.decimals).toString(),
+      route: picked.provider,
+      slippageBps,
+      digest: res.digest,
+      simGasUsed: picked.gasUsed,
+      policyEnforced: ctx.policy != null,
+    },
+  }
+}
+
 const Schema = z.object({
   from: z.string().min(1).describe('Input coin: symbol (sui, usdc, deep, wal) or full coin type.'),
   to: z.string().min(1).describe('Output coin: symbol or full coin type.'),
@@ -118,30 +231,9 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
     handler: async args => {
       if (ctx.network !== 'mainnet') return { ok: false, error: 'swap supports mainnet only' }
       try {
-        // Resolve BOTH coins to their real decimals (registry or on-chain
-        // metadata) — never guess, or a 6-decimal coin gets scaled 1000x.
-        const from: CoinInfo | undefined = await resolveCoin(ctx.client, args.from)
-        const to: CoinInfo | undefined = await resolveCoin(ctx.client, args.to)
-        if (!from)
-          return {
-            ok: false,
-            error: `unknown coin "${args.from}" (specify a known symbol or full coin type)`,
-          }
-        if (!to)
-          return {
-            ok: false,
-            error: `unknown coin "${args.to}" (specify a known symbol or full coin type)`,
-          }
-        if (from.type === to.type) return { ok: false, error: 'from and to are the same coin' }
-        const amountIn = decimalToBase(args.amount, from.decimals)
-        if (amountIn === undefined || amountIn <= 0n) {
-          return { ok: false, error: `invalid amount "${args.amount}"` }
-        }
-        // Minimum only bounds SUI-denominated input (amountIn is then in MIST).
-        if (from.type === SUI_TYPE) {
-          const tooSmall = checkMinimum('swap', amountIn)
-          if (tooSmall) return { ok: false, error: tooSmall }
-        }
+        const resolved = await resolveSwapCoins(ctx, args)
+        if ('error' in resolved) return { ok: false, error: resolved.error }
+        const { from, to, amountIn } = resolved
 
         // The slippage we'll actually enforce on the route: the caller's request
         // (or a tight 0.5% default). The policy check below BLOCKS it if it
@@ -151,21 +243,15 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
 
         // Policy gate. The MIST per-tx cap is SUI-denominated, so it only bounds
         // SUI-input swaps; the slippage/protocol/expiry checks always apply.
-        if (ctx.policy) {
-          const verdict = evaluatePolicy(
-            {
-              kind: 'swap',
-              coinType: from.type,
-              amountMist: from.type === SUI_TYPE ? amountIn : 0n,
-              toCoinType: to.type,
-              protocol: 'swap',
-              slippageBps: requestedSlippageBps,
-            },
-            ctx.policy,
-          )
-          if (!verdict.allowed)
-            return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
-        }
+        const blocked = policyBlock(ctx.policy, {
+          kind: 'swap',
+          coinType: from.type,
+          amountMist: from.type === SUI_TYPE ? amountIn : 0n,
+          toCoinType: to.type,
+          protocol: 'swap',
+          slippageBps: requestedSlippageBps,
+        })
+        if (blocked) return { ok: false, error: blocked }
 
         const me = ctx.agentAddress
         const ag = new MetaAg({ slippageBps: requestedSlippageBps })
@@ -183,76 +269,11 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
           .sort((a, b) => Number(b.amountOut ?? 0) - Number(a.amountOut ?? 0))
         if (quotes.length === 0) return { ok: false, error: 'no swap route found' }
 
-        // Best-execution with reliability: try routes in output order, skipping
-        // any that fail simulation (some providers build PTBs that leave an
-        // unconsumed value / revert). Use the first that simulates cleanly.
-        let used: {
-          provider: string
-          amountOut: number
-          tx: Transaction
-          gasUsed?: string
-        } | null = null
-        const failures: string[] = []
-        for (const q of quotes) {
-          const tx = new Transaction()
-          tx.setSender(me)
-          tx.setGasBudget(150_000_000)
-          try {
-            const { coinIn, sink } = sourceAndSink(
-              tx,
-              ctx,
-              from,
-              to,
-              amountIn,
-              `swap to ${args.to}`,
-            )
-            const coinOut = await ag.swap({ quote: q, signer: me, tx, coinIn: coinIn as never })
-            sink(coinOut as TransactionObjectArgument)
-            const sim = await simulate(ctx.client, tx, me)
-            if (sim.ok) {
-              used = {
-                provider: String(q.provider),
-                amountOut: Number(q.amountOut ?? 0),
-                tx,
-                gasUsed: sim.gasUsed,
-              }
-              break
-            }
-            failures.push(`${q.provider}: ${sim.reason}`)
-          } catch (e) {
-            failures.push(`${q.provider}: ${(e as Error).message.slice(0, 60)}`)
-          }
+        const picked = await pickCleanRoute(ctx, ag, quotes, resolved, args.to)
+        if ('failures' in picked) {
+          return { ok: false, error: `no route simulated cleanly — ${picked.failures.join(' | ')}` }
         }
-        if (!used)
-          return { ok: false, error: `no route simulated cleanly — ${failures.join(' | ')}` }
-
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: used.tx,
-          options: { showEffects: true },
-        })
-        if (res.effects?.status?.status !== 'success') {
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        }
-        await ctx.client.waitForTransaction({ digest: res.digest })
-
-        return {
-          ok: true,
-          data: {
-            from: args.from,
-            to: args.to,
-            amountIn: args.amount,
-            amountOut: (used.amountOut / 10 ** to.decimals).toString(),
-            route: used.provider,
-            slippageBps: requestedSlippageBps,
-            digest: res.digest,
-            simGasUsed: used.gasUsed,
-            policyEnforced: ctx.policy != null,
-          },
-        }
+        return await executePickedRoute(ctx, picked, args, to, requestedSlippageBps)
       } catch (e) {
         return { ok: false, error: (e as Error).message.slice(0, 240) }
       }
