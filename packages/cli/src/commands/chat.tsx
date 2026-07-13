@@ -48,7 +48,12 @@ import {
   runEscalation,
   scanSkills,
 } from 'lyra-core'
-import { ONCHAIN_GUIDANCE, policyFromEnv, policyRequiresApprovalForCall } from 'lyra-plugin-onchain'
+import {
+  ONCHAIN_GUIDANCE,
+  isValueMovingTool,
+  policyFromEnv,
+  policyRequiresApprovalForCall,
+} from 'lyra-plugin-onchain'
 import {
   TELEGRAM_GUIDANCE,
   type TelegramApprovalBridge,
@@ -1200,7 +1205,19 @@ const PERMISSION_DESCRIBERS: Record<string, (a: PermArgs) => PermissionRequest |
 
 function describePermissionCheck(call: { name: string; args: unknown }): PermissionRequest | null {
   const fn = PERMISSION_DESCRIBERS[call.name]
-  return fn ? fn((call.args ?? {}) as PermArgs) : null
+  if (fn) return fn((call.args ?? {}) as PermArgs)
+  // Fail-closed: any value-moving on-chain tool without a rich describer still
+  // gets gated (strict denies, prompt asks) so nothing slips through unchecked.
+  if (isValueMovingTool(call.name)) {
+    const a = (call.args ?? {}) as Record<string, unknown>
+    const amount = typeof a.amount === 'string' ? a.amount : ''
+    return {
+      kind: 'chain.write',
+      command: `${call.name} ${amount}`.trim(),
+      reason: `on-chain write: ${call.name}`,
+    }
+  }
+  return null
 }
 
 function summarizeArgs(args: unknown): string {

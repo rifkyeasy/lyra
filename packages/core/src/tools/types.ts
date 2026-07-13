@@ -56,6 +56,13 @@ export interface ToolDef<TArgs = unknown> {
    * still gates dispatch.
    */
   parametersOverride?: JSONSchema
+  /**
+   * The tool moves value / writes on-chain state when executed. When true, the
+   * permission-mode gate (strict/prompt) and the deterministic approval floor
+   * apply — so it can't execute autonomously without the operator's configured
+   * approval. Read-only tools omit this (or set false).
+   */
+  movesValue?: boolean
 }
 
 export interface ToolResult {

@@ -25,7 +25,14 @@ import type { NativePlugin, ToolDef } from 'lyra-core'
 import { TOOLS } from './catalog'
 import type { OnchainRuntimeContext } from './types'
 
-export { TOOLS, WEB_TOOL_NAMES, capabilitySummary, type CatalogEntry } from './catalog'
+export {
+  TOOLS,
+  WEB_TOOL_NAMES,
+  VALUE_MOVING_TOOL_NAMES,
+  isValueMovingTool,
+  capabilitySummary,
+  type CatalogEntry,
+} from './catalog'
 export {
   makeSuiClient,
   keypairFromSecret,
@@ -68,7 +75,13 @@ const plugin: NativePlugin = {
     if (!onchain) return // soft-init for tests / non-onchain contexts
 
     // Every tool is declared once in the catalog; registration just iterates it.
-    for (const tool of TOOLS) ctx.registerTool(tool.make(onchain) as ToolDef)
+    // Carry the value-moving flag onto the ToolDef (fail-closed: !read) so any
+    // consumer holding the def knows whether it needs the approval/permission gate.
+    for (const tool of TOOLS) {
+      const def = tool.make(onchain) as ToolDef
+      def.movesValue = !tool.read
+      ctx.registerTool(def)
+    }
   },
 }
 

@@ -178,13 +178,27 @@ export function evaluatePolicy(
   return { violations, allowed, requiresApproval }
 }
 
-/** Parse a decimal SUI string to MIST. Returns undefined for invalid input. */
+/**
+ * Strict decimal string → base units (bigint) for a coin with `decimals`. No
+ * floats, no rounding: rejects hex, scientific notation, signs, and more
+ * fractional digits than the asset has. Returns undefined for anything it can't
+ * parse exactly. The shared amount parser for every tool (via `./coins`).
+ */
+export function decimalToBase(input: string | undefined, decimals: number): bigint | undefined {
+  if (input === undefined) return undefined
+  const s = input.trim()
+  if (!/^\d+(\.\d+)?$/.test(s)) return undefined
+  const [whole = '0', frac = ''] = s.split('.')
+  if (frac.length > decimals) return undefined
+  return BigInt(whole) * 10n ** BigInt(decimals) + BigInt(frac.padEnd(decimals, '0') || '0')
+}
+
+/**
+ * Parse a decimal SUI string to MIST. Strict (see `decimalToBase`): rejects hex,
+ * scientific notation, negatives, and sub-MIST precision.
+ */
 export function suiToMist(sui?: string): bigint | undefined {
-  if (sui === undefined || sui === '') return undefined
-  const n = Number(sui)
-  if (!Number.isFinite(n) || n < 0) return undefined
-  // Round to whole MIST to avoid float drift for typical 1–9 decimal inputs.
-  return BigInt(Math.round(n * 1e9))
+  return decimalToBase(sui, 9)
 }
 
 const list = (s?: string): string[] | undefined =>

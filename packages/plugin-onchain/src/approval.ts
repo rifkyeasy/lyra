@@ -11,6 +11,7 @@
  * code, not in the model (CLAUDE.md).
  */
 
+import { isValueMovingTool } from './catalog'
 import { type SuiPolicy, type SuiPolicyAction, evaluatePolicy, suiToMist } from './policy'
 
 const SUI_TYPE = '0x2::sui::SUI'
@@ -37,6 +38,13 @@ function actionForCall(name: string, a: Record<string, unknown>): SuiPolicyActio
  * True when the policy requires human approval for this tool call (the gate
  * should force a prompt regardless of mode). False when no policy is configured
  * or the call is not value-moving.
+ *
+ * Covers EVERY value-moving tool, not just `sui.send`: when the call maps to a
+ * precise PolicyAction (amount/recipient known) we use the exact verdict; for a
+ * value-moving tool whose amount we can't extract generically, we escalate
+ * conservatively — read-only/confirm always require approval, and an `auto`
+ * policy with an auto-ceiling escalates because we can't prove the spend is under
+ * it. Only a full-`auto` policy with no ceiling lets such a call through.
  */
 export function policyRequiresApprovalForCall(
   name: string,
@@ -44,7 +52,11 @@ export function policyRequiresApprovalForCall(
   policy: SuiPolicy | undefined,
 ): boolean {
   if (!policy) return false
+  if (!isValueMovingTool(name)) return false
   const action = actionForCall(name, args)
-  if (!action) return false
-  return evaluatePolicy(action, policy).requiresApproval
+  if (action) return evaluatePolicy(action, policy).requiresApproval
+  // Value-moving but no precise amount mapping → be conservative.
+  if (policy.readOnly || policy.autonomy === 'readonly') return true
+  if (policy.autonomy === 'confirm') return true
+  return policy.autoMaxMistPerTx !== undefined
 }

@@ -13,30 +13,8 @@
 import { AggregatorClient } from '@cetusprotocol/aggregator-sdk'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
+import { type CoinInfo, decimalToBase, resolveCoin } from '../coins'
 import type { OnchainRuntimeContext } from '../types'
-
-/** Symbol → mainnet coin type + decimals for the common assets. */
-const COINS: Record<string, { type: string; decimals: number }> = {
-  sui: { type: '0x2::sui::SUI', decimals: 9 },
-  usdc: {
-    type: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
-    decimals: 6,
-  },
-  deep: {
-    type: '0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP',
-    decimals: 6,
-  },
-  wal: {
-    type: '0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL',
-    decimals: 9,
-  },
-}
-
-function resolve(input: string): { type: string; decimals: number } {
-  const k = input.trim().toLowerCase()
-  if (COINS[k]) return COINS[k]
-  return { type: input.trim(), decimals: 9 }
-}
 
 const Schema = z.object({
   from: z.string().min(1).describe('Input coin: symbol (sui, usdc, deep, wal) or full coin type.'),
@@ -56,10 +34,14 @@ export function makeCetusQuote(ctx: OnchainRuntimeContext): ToolDef<Args> {
       if (ctx.network !== 'mainnet')
         return { ok: false, error: 'Cetus aggregator supports mainnet only' }
       try {
-        const from = resolve(args.from)
-        const to = resolve(args.to)
-        const amountIn = BigInt(Math.round(Number(args.amount) * 10 ** from.decimals))
-        if (amountIn <= 0n) return { ok: false, error: `invalid amount "${args.amount}"` }
+        const from: CoinInfo | undefined = await resolveCoin(ctx.client, args.from)
+        const to: CoinInfo | undefined = await resolveCoin(ctx.client, args.to)
+        if (!from) return { ok: false, error: `unknown coin "${args.from}"` }
+        if (!to) return { ok: false, error: `unknown coin "${args.to}"` }
+        const amountIn = decimalToBase(args.amount, from.decimals)
+        if (amountIn === undefined || amountIn <= 0n) {
+          return { ok: false, error: `invalid amount "${args.amount}"` }
+        }
 
         // The aggregator accepts our v1 client for read-only routing.
         const agg = new AggregatorClient({ signer: ctx.agentAddress, client: ctx.client as never })

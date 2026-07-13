@@ -13,6 +13,7 @@ import { MetaAg } from '@7kprotocol/sdk-ts'
 import { Transaction, coinWithBalance } from '@mysten/sui/transactions'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
+import { type CoinInfo, decimalToBase, resolveCoin } from '../coins'
 import { checkMinimum } from '../minimums'
 import { evaluatePolicy } from '../policy'
 import { simulate } from '../simulate'
@@ -20,33 +21,20 @@ import type { OnchainRuntimeContext } from '../types'
 import { fundSui } from '../vault-fund'
 
 const SUI_TYPE = '0x2::sui::SUI'
-
-/** Symbol → mainnet coin type + decimals for the common assets. */
-const COINS: Record<string, { type: string; decimals: number }> = {
-  sui: { type: SUI_TYPE, decimals: 9 },
-  usdc: {
-    type: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
-    decimals: 6,
-  },
-  deep: {
-    type: '0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP',
-    decimals: 6,
-  },
-  wal: {
-    type: '0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL',
-    decimals: 9,
-  },
-}
-
-function resolve(input: string): { type: string; decimals: number } {
-  const k = input.trim().toLowerCase()
-  return COINS[k] ?? { type: input.trim(), decimals: 9 }
-}
+/** Default max slippage when neither the call nor the policy specifies one. */
+const DEFAULT_SLIPPAGE_BPS = 50 // 0.5%
 
 const Schema = z.object({
   from: z.string().min(1).describe('Input coin: symbol (sui, usdc, deep, wal) or full coin type.'),
   to: z.string().min(1).describe('Output coin: symbol or full coin type.'),
   amount: z.string().min(1).describe('Input amount in whole units of `from`, e.g. "1".'),
+  slippageBps: z
+    .number()
+    .int()
+    .positive()
+    .max(5000)
+    .optional()
+    .describe('Max slippage tolerance in basis points (default 50 = 0.5%). Capped by policy.'),
 })
 type Args = z.infer<typeof Schema>
 
@@ -60,16 +48,36 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
     handler: async args => {
       if (ctx.network !== 'mainnet') return { ok: false, error: 'swap supports mainnet only' }
       try {
-        const from = resolve(args.from)
-        const to = resolve(args.to)
+        // Resolve BOTH coins to their real decimals (registry or on-chain
+        // metadata) — never guess, or a 6-decimal coin gets scaled 1000x.
+        const from: CoinInfo | undefined = await resolveCoin(ctx.client, args.from)
+        const to: CoinInfo | undefined = await resolveCoin(ctx.client, args.to)
+        if (!from)
+          return {
+            ok: false,
+            error: `unknown coin "${args.from}" (specify a known symbol or full coin type)`,
+          }
+        if (!to)
+          return {
+            ok: false,
+            error: `unknown coin "${args.to}" (specify a known symbol or full coin type)`,
+          }
         if (from.type === to.type) return { ok: false, error: 'from and to are the same coin' }
-        const amountIn = BigInt(Math.round(Number(args.amount) * 10 ** from.decimals))
-        if (amountIn <= 0n) return { ok: false, error: `invalid amount "${args.amount}"` }
+        const amountIn = decimalToBase(args.amount, from.decimals)
+        if (amountIn === undefined || amountIn <= 0n) {
+          return { ok: false, error: `invalid amount "${args.amount}"` }
+        }
         // Minimum only bounds SUI-denominated input (amountIn is then in MIST).
         if (from.type === SUI_TYPE) {
           const tooSmall = checkMinimum('swap', amountIn)
           if (tooSmall) return { ok: false, error: tooSmall }
         }
+
+        // The slippage we'll actually enforce on the route: the caller's request
+        // (or a tight 0.5% default). The policy check below BLOCKS it if it
+        // exceeds the policy's max — so the cap is real, not a comparison of the
+        // policy value against itself.
+        const requestedSlippageBps = args.slippageBps ?? DEFAULT_SLIPPAGE_BPS
 
         // Policy gate. The MIST per-tx cap is SUI-denominated, so it only bounds
         // SUI-input swaps; the slippage/protocol/expiry checks always apply.
@@ -81,7 +89,7 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
               amountMist: from.type === SUI_TYPE ? amountIn : 0n,
               toCoinType: to.type,
               protocol: 'swap',
-              slippageBps: ctx.policy.maxSlippageBps,
+              slippageBps: requestedSlippageBps,
             },
             ctx.policy,
           )
@@ -90,7 +98,7 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
         }
 
         const me = ctx.agentAddress
-        const ag = new MetaAg({ slippageBps: ctx.policy?.maxSlippageBps ?? 100 })
+        const ag = new MetaAg({ slippageBps: requestedSlippageBps })
         // Quote without the SDK's internal pre-simulation (it throws on routes it
         // can't simulate); we simulate the chosen route ourselves below.
         const quotes = (
@@ -172,6 +180,7 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
             amountIn: args.amount,
             amountOut: (used.amountOut / 10 ** to.decimals).toString(),
             route: used.provider,
+            slippageBps: requestedSlippageBps,
             digest: res.digest,
             simGasUsed: used.gasUsed,
             policyEnforced: ctx.policy != null,

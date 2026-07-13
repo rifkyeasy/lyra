@@ -37,6 +37,7 @@ import {
 import {
   ONCHAIN_GUIDANCE,
   type OnchainRuntimeContext,
+  isValueMovingTool,
   keypairFromSecret,
   makeSuiClient,
   policyFromEnv,
@@ -207,6 +208,15 @@ function describePermissionCheck(call: { name: string; args: unknown }): Permiss
         reason: 'pay to store a durable Walrus blob',
       }
     default:
+      // Fail-closed: any value-moving on-chain tool not richly described above
+      // still gets gated (strict denies, prompt asks) so nothing slips through.
+      if (isValueMovingTool(call.name)) {
+        return {
+          kind: 'chain.write',
+          command: `${call.name} ${optStr(a.amount) ?? ''}`.trim(),
+          reason: `on-chain write: ${call.name}`,
+        }
+      }
       return null
   }
 }

@@ -120,6 +120,19 @@ export function makeVoloUnstake(ctx: OnchainRuntimeContext): ToolDef<UnstakeArgs
           return { ok: false, error: `invalid amount "${args.amount}"` }
         }
 
+        // Same deterministic policy gate as every other write (previously this
+        // path had none): readonly/expiry/protocol-allowlist checks apply, and
+        // the permission layer escalates it via the value-moving capability gate.
+        if (ctx.policy) {
+          const verdict = evaluatePolicy(
+            { kind: 'transfer', coinType: VSUI_TYPE, amountMist, protocol: 'stake' },
+            ctx.policy,
+          )
+          if (!verdict.allowed) {
+            return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
+          }
+        }
+
         const tx = new Transaction()
         // coinWithBalance resolves the agent's vSUI coins into one of the exact size.
         const vsuiCoin = coinWithBalance({ type: VSUI_TYPE, balance: amountMist })
