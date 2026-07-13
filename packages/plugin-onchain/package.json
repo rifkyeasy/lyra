@@ -1,6 +1,6 @@
 {
   "name": "lyra-plugin-onchain",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -9,7 +9,9 @@
     ".": "./src/index.ts",
     "./protocol-ids": "./src/protocol-ids.ts"
   },
-  "scripts": { "build": "tsc -b" },
+  "scripts": {
+    "build": "tsc -b"
+  },
   "dependencies": {
     "lyra-core": "workspace:*",
     "lyra-plugin-onchain-one": "workspace:*",

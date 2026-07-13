@@ -1,9 +1,9 @@
 {
   "name": "lyra-plugin-onchain-two",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "v2 on-chain tools (Wormhole bridge, deepbook/cetus execution) \u2014 the @mysten/sui v2 sibling of lyra-plugin-onchain (v1), so incompatible SDK versions coexist.",
+  "description": "v2 on-chain tools (Wormhole bridge, deepbook/cetus execution) — the @mysten/sui v2 sibling of lyra-plugin-onchain (v1), so incompatible SDK versions coexist.",
   "main": "src/index.ts",
   "scripts": {
     "build": "tsc -b",

@@ -1,5 +1,11 @@
 # lyra-plugin-system
 
+## 0.4.0
+
+### Patch Changes
+
+- lyra-core@0.4.0
+
 ## 0.3.0
 
 ### Patch Changes
