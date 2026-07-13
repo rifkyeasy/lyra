@@ -148,3 +148,33 @@ gate + approval floor from the shared plugin surface.
 
 Dependencies: none on the contract (done). Needs the v2 context (done) + the
 Wormhole SDK route/execute wiring + a pending-transfer store + frontend wallets.
+
+---
+
+## 10. Implementation status
+
+**Built + unit-tested (this package):**
+
+- `deposit-lifecycle.ts` — the deposit state machine (`initiated → source_burned →
+  attested → sui_redeemed → [swapped_to_usdc] → vault_deposited`, `failed` from any
+  non-terminal state), `canTransition` / `isTerminal`, and `nextAction(status,
+  needsSwap)` — the orchestrator's "what to do next" decision. Pure + chain-agnostic.
+- `deposit-store.ts` — `PendingDeposit` record + `DepositStore` interface + an
+  `InMemoryDepositStore` that routes every mutation through the state machine (illegal
+  transitions throw). Swap a durable store (DB / Walrus) behind the interface for prod.
+- 20 unit tests cover the transition legality, the swap branch, artifact merging,
+  idempotency, and copy-on-read isolation.
+
+This deliberately decouples the **orchestration control-flow** (deterministic,
+testable now) from the **cross-chain execution** (source burn, Circle attestation
+polling, Sui redeem, swap, vault deposit) — each of which is a `nextAction` outcome
+that reports its result back as a transition.
+
+**Still to wire (needs live testnet cross-chain runs to verify):**
+
+- `bridge.deposit` — build the source-chain CCTP burn for the user to sign, open a
+  `PendingDeposit`.
+- attestation poller — Circle attestation → `attested`.
+- `bridge.complete` — Sui redeem (mint USDC) → optional swap → `vault::deposit<USDC>`.
+- `bridge.withdraw` — the reverse (owner-gated).
+- a durable `DepositStore` impl + the multi-chain-wallet frontend.

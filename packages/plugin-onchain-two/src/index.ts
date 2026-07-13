@@ -11,6 +11,22 @@ import { makeBridgeRoutes } from './bridge'
 
 export { makeBridgeRoutes } from './bridge'
 export { makeV2Context, type V2Context } from './context'
+// Cross-chain deposit orchestration (pure, chain-agnostic): the state machine +
+// pending-transfer store that drive a deposit from source-burn → attestation →
+// Sui redeem → vault. Chain calls report results back as transitions.
+export {
+  type DepositStatus,
+  type DepositAction,
+  canTransition,
+  isTerminal,
+  nextAction,
+} from './deposit-lifecycle'
+export {
+  type PendingDeposit,
+  type NewDeposit,
+  type DepositStore,
+  InMemoryDepositStore,
+} from './deposit-store'
 
 const plugin: NativePlugin = {
   name: 'onchain-two',
