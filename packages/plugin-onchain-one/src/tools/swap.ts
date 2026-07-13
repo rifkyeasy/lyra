@@ -18,6 +18,7 @@ import {
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
 import { type CoinInfo, decimalToBase, resolveCoin } from '../coins'
+import { submit } from '../execute'
 import { checkMinimum } from '../minimums'
 import { normalizeCoinType, policyBlock } from '../policy'
 import { simulate } from '../simulate'
@@ -182,11 +183,7 @@ async function executePickedRoute(
   to: CoinInfo,
   slippageBps: number,
 ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-  const res = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: picked.tx,
-    options: { showEffects: true },
-  })
+  const res = await submit(ctx, picked.tx, { showEffects: true })
   if (res.effects?.status?.status !== 'success') {
     return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
   }

@@ -12,9 +12,21 @@ import type { SuiPolicy } from './policy'
 export interface OnchainRuntimeContext {
   /** Sui JSON-RPC client for `network`. */
   client: SuiClient
-  /** The agent signer (signs + pays gas). */
-  keypair: Ed25519Keypair
-  /** `keypair.toSuiAddress()`, cached. */
+  /**
+   * The agent signer (signs + pays gas) — the local-key path. Optional: when a
+   * remote signer is wired via `signBytes`, the master/agent key never enters this
+   * process and `keypair` is omitted. Exactly one of `keypair` / `signBytes` must
+   * be set; write tools go through `submit()` which prefers `signBytes`.
+   */
+  keypair?: Ed25519Keypair
+  /**
+   * Remote-signer hook: sign built transaction bytes for this owner's agent and
+   * return the serialized signature. When set, `submit()` builds → signs here →
+   * executes, so agent keys stay out of this process (production posture). When
+   * unset, signing falls back to `keypair` (CLI / single-box).
+   */
+  signBytes?: (txBytes: Uint8Array) => Promise<string>
+  /** The agent's Sui address, cached (from the keypair or the remote signer). */
   agentAddress: string
   network: SuiNetwork
   /** Deterministic fund-control policy. When set, every write is checked before simulate/execute. */

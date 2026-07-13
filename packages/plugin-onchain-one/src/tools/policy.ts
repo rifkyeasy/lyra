@@ -12,6 +12,7 @@ import { bcs } from '@mysten/sui/bcs'
 import { Transaction } from '@mysten/sui/transactions'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
+import { submit } from '../execute'
 import { type SuiPolicy, suiToMist } from '../policy'
 import type { OnchainRuntimeContext } from '../types'
 import { fmtSui } from './balance'
@@ -176,11 +177,7 @@ async function runCreatePolicy(
       error: string
     }
 > {
-  const res = await ctx.client.signAndExecuteTransaction({
-    signer: ctx.keypair,
-    transaction: tx,
-    options: { showEffects: true, showObjectChanges: true },
-  })
+  const res = await submit(ctx, tx, { showEffects: true, showObjectChanges: true })
   if (res.effects?.status?.status !== 'success') {
     return { error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
   }

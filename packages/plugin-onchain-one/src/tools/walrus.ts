@@ -33,6 +33,16 @@ export function makeWalrusStore(ctx: OnchainRuntimeContext): ToolDef<Args> {
     schema: Schema,
     handler: async args => {
       try {
+        // Walrus's writeBlob runs its own multi-step signing flow and needs a full
+        // local Signer — the remote-signBytes hook can't drive it. Financial tools
+        // (transfer/swap/stake/lend) go through the remote signer; blob storage
+        // still needs a local key (routing it through a remote Signer is a follow-up).
+        if (!ctx.keypair) {
+          return {
+            ok: false,
+            error: 'walrus storage requires a local signer (unavailable with a remote signer)',
+          }
+        }
         const walrus = new WalrusClient({
           network: ctx.walrusNetwork ?? ctx.network,
           // cast: @mysten/walrus bundles a different @mysten/sui minor; runtime-
