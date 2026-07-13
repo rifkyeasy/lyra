@@ -1,6 +1,6 @@
 {
   "name": "lyra-ai-agent",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "description": "lyra CLI: a Sui-native, policy-bound AI finance agent. Real on-chain work gated by deterministic policy, simulation, and approval",
   "license": "MIT",
@@ -13,14 +13,29 @@
   "bugs": {
     "url": "https://github.com/lyraai-protocol/lyra/issues"
   },
-  "keywords": ["lyra", "ai", "agent", "cli", "tui", "sui", "walrus", "deepbook", "defi"],
+  "keywords": [
+    "lyra",
+    "ai",
+    "agent",
+    "cli",
+    "tui",
+    "sui",
+    "walrus",
+    "deepbook",
+    "defi"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "engines": {
     "bun": ">=1.1"
   },
-  "files": ["src", "!src/**/*.test.ts", "bin", "README.md"],
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "bin",
+    "README.md"
+  ],
   "bin": {
     "lyra": "bin/lyra"
   },
@@ -35,11 +50,11 @@
     "@mysten/sui": "^1.45.2",
     "@opentui/core": "^0.1.97",
     "@opentui/solid": "^0.1.97",
-    "lyra-core": "^0.2.1",
-    "lyra-gateway": "^0.2.1",
-    "lyra-plugin-onchain": "^0.2.1",
-    "lyra-plugin-system": "^0.2.1",
-    "lyra-plugin-telegram": "^0.2.1",
+    "lyra-core": "^0.3.0",
+    "lyra-gateway": "^0.3.0",
+    "lyra-plugin-onchain": "^0.3.0",
+    "lyra-plugin-system": "^0.3.0",
+    "lyra-plugin-telegram": "^0.3.0",
     "picocolors": "^1.1.1",
     "qrcode-terminal": "^0.12.0",
     "solid-js": "^1.9.12"

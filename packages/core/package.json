@@ -1,6 +1,6 @@
 {
   "name": "lyra-core",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "description": "The SDK for lyra, a Sui-native policy-aware AI treasury assistant: brain, local memory + storage, the policy/approval engine, and the Sui agent keypair + chain helpers",
   "license": "MIT",
@@ -13,14 +13,26 @@
   "bugs": {
     "url": "https://github.com/lyraai-protocol/lyra/issues"
   },
-  "keywords": ["lyra", "ai", "agent", "sui", "treasury", "defi", "policy"],
+  "keywords": [
+    "lyra",
+    "ai",
+    "agent",
+    "sui",
+    "treasury",
+    "defi",
+    "policy"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "engines": {
     "bun": ">=1.1"
   },
-  "files": ["src", "!src/**/*.test.ts", "README.md"],
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md"
+  ],
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
