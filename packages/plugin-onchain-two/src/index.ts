@@ -10,6 +10,8 @@ import type { NativePlugin, ToolDef } from 'lyra-core'
 import { makeBridgeRoutes } from './bridge'
 
 export { makeBridgeRoutes } from './bridge'
+// Agent-facing deposit tools (bound to an owner + a store): open + track a deposit.
+export { makeBridgeDeposit, makeBridgeStatus } from './bridge-tools'
 export { makeV2Context, type V2Context } from './context'
 // Cross-chain deposit orchestration (pure, chain-agnostic): the state machine +
 // pending-transfer store that drive a deposit from source-burn → attestation →
