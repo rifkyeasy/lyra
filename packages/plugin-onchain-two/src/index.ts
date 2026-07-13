@@ -35,6 +35,19 @@ export {
   driveTick,
   reapStale,
 } from './deposit-driver'
+// Entry validation: turn a bridge.deposit request into a validated NewDeposit
+// (supported CCTP chains, token classification → needsSwap, amount/owner checks).
+export {
+  type DepositRequest,
+  type IntentResult,
+  type TokenClass,
+  CCTP_DOMAINS,
+  MIN_DEPOSIT,
+  classifyToken,
+  isSupportedSourceChain,
+  supportedSourceChains,
+  validateDepositRequest,
+} from './deposit-intent'
 
 const plugin: NativePlugin = {
   name: 'onchain-two',
