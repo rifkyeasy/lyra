@@ -46,6 +46,34 @@ interface PersistedRecord {
   ts: number
 }
 
+/** Read one `.jsonl` file (best-effort) and merge its records into `out`. */
+function loadJsonlFile(path: string, out: Map<string, BrainMessage[]>): void {
+  let raw: string
+  try {
+    raw = readFileSync(path, 'utf8')
+  } catch {
+    return
+  }
+  const lines = raw.split('\n').filter(l => l.length > 0)
+  for (const line of lines) {
+    mergeRecordLine(line, out)
+  }
+}
+
+/** Parse a single JSONL line and append its message to `out`. Malformed lines are dropped. */
+function mergeRecordLine(line: string, out: Map<string, BrainMessage[]>): void {
+  try {
+    const rec = JSON.parse(line) as PersistedRecord
+    if (typeof rec.channelKey !== 'string' || !rec.message) return
+    if (rec.v !== JSONL_RECORD_VERSION) return
+    const list = out.get(rec.channelKey) ?? []
+    list.push(rec.message)
+    out.set(rec.channelKey, list)
+  } catch {
+    // skip malformed line
+  }
+}
+
 export function createFsHistoryPersist(opts: FsHistoryPersistOpts): HistoryPersist {
   const { dir } = opts
 
@@ -86,26 +114,8 @@ export function createFsHistoryPersist(opts: FsHistoryPersistOpts): HistoryPersi
       if (!existsSync(dir)) return out
       const entries = readdirSync(dir, { withFileTypes: true })
       for (const e of entries) {
-        if (!(e.isFile() && e.name.endsWith('.jsonl'))) continue
-        const path = join(dir, e.name)
-        let raw: string
-        try {
-          raw = readFileSync(path, 'utf8')
-        } catch {
-          continue
-        }
-        const lines = raw.split('\n').filter(l => l.length > 0)
-        for (const line of lines) {
-          try {
-            const rec = JSON.parse(line) as PersistedRecord
-            if (typeof rec.channelKey !== 'string' || !rec.message) continue
-            if (rec.v !== JSONL_RECORD_VERSION) continue
-            const list = out.get(rec.channelKey) ?? []
-            list.push(rec.message)
-            out.set(rec.channelKey, list)
-          } catch {
-            // skip malformed line
-          }
+        if (e.isFile() && e.name.endsWith('.jsonl')) {
+          loadJsonlFile(join(dir, e.name), out)
         }
       }
       return out

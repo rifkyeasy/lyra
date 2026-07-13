@@ -71,25 +71,9 @@ import {
   buildTelegramRuntimeContext,
 } from './chat-telegram'
 
-export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<void> {
-  const found = await findAndLoadConfig(opts?.cwd)
-  if (!found) {
-    console.log('No lyra.config.ts found. Run `lyra init` first.')
-    process.exit(1)
-  }
-  let { config } = found
-  const configPath = found.path
+type TelegramSecrets = { botToken: string; botUsername?: string; allowedUserIds: number[] }
 
-  // On Sui the agent IS the signer: one Ed25519 keypair, sourced from the
-  // `LYRA_AGENT_KEY` env (`suiprivkey1…`). No operator wallet, keystore
-  // decrypt, or a Sui wallet dance. The deterministic policy (mirrored
-  // on-chain by `lyra::policy`) bounds what the key may do.
-  const agent = loadAgent()
-  if (!agent) {
-    console.log('No agent key found. Run `lyra init` first (or export a suiprivkey1… key).')
-    process.exit(1)
-  }
-  const agentAddress = agent.address
+function warnAgentAddressMismatch(config: LyraConfig, agentAddress: string): void {
   // Keep the config in sync if the address derived from the key differs from
   // what `lyra init` last wrote (e.g. the operator rotated keys).
   if (config.identity.agent && config.identity.agent !== agentAddress) {
@@ -97,72 +81,55 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
       `warning: LYRA_AGENT_KEY resolves to ${agentAddress}, but config has ${config.identity.agent}.`,
     )
   }
-  const agentId = placeholderAgentId(agentAddress)
-  const paths = agentPaths.agent(agentId)
+}
 
-  // Telegram secrets are env-driven on Sui (no operator-encrypted blob).
-  // TELEGRAM_BOT_TOKEN enables the phone-DM gateway; TELEGRAM_CHAT_ID
-  // (optional) is the sole allowed DM user (blank = open access).
-  let telegramSecrets: {
-    botToken: string
-    botUsername?: string
-    allowedUserIds: number[]
-  } | null = null
+/**
+ * Telegram secrets are env-driven on Sui (no operator-encrypted blob).
+ * TELEGRAM_BOT_TOKEN enables the phone-DM gateway; TELEGRAM_CHAT_ID (optional)
+ * is the sole allowed DM user (blank = open access). Returns a (possibly
+ * plugin-augmented) config alongside the parsed secrets.
+ */
+function resolveTelegramSecrets(config: LyraConfig): {
+  telegramSecrets: TelegramSecrets | null
+  config: LyraConfig
+} {
   const envTgToken = process.env.TELEGRAM_BOT_TOKEN
-  if (envTgToken) {
-    const envChatId = process.env.TELEGRAM_CHAT_ID
-    telegramSecrets = {
-      botToken: envTgToken,
-      botUsername: process.env.TELEGRAM_USERNAME,
-      allowedUserIds: envChatId ? [Number(envChatId)] : [],
-    }
-    if (!(config.plugins ?? []).includes('telegram')) {
-      config = { ...config, plugins: [...(config.plugins ?? []), 'telegram'] }
-    }
+  if (!envTgToken) return { telegramSecrets: null, config }
+  const envChatId = process.env.TELEGRAM_CHAT_ID
+  const telegramSecrets: TelegramSecrets = {
+    botToken: envTgToken,
+    botUsername: process.env.TELEGRAM_USERNAME,
+    allowedUserIds: envChatId ? [Number(envChatId)] : [],
   }
-
-  if (!config.brain.provider) {
-    const updated = await runModelPicker(config, configPath)
-    if (!updated) process.exit(1)
-    config = updated
+  let nextConfig = config
+  if (!(config.plugins ?? []).includes('telegram')) {
+    nextConfig = { ...config, plugins: [...(config.plugins ?? []), 'telegram'] }
   }
+  return { telegramSecrets, config: nextConfig }
+}
 
-  const tools = new ToolRegistry(config.tools)
-  tools.register(makeMemorySaveTool({ agentId }) as Parameters<typeof tools.register>[0])
-  tools.register(makeMemoryReadTool({ agentId }) as Parameters<typeof tools.register>[0])
-  tools.register(makeMemoryListTool({ agentId }) as Parameters<typeof tools.register>[0])
-  tools.register(makeToolSearchTool(tools) as Parameters<typeof tools.register>[0])
+async function ensureBrainProvider(config: LyraConfig, configPath: string): Promise<LyraConfig> {
+  if (config.brain.provider) return config
+  const updated = await runModelPicker(config, configPath)
+  if (!updated) process.exit(1)
+  return updated
+}
 
-  const initialMode: PermissionMode = opts?.yolo ? 'off' : (config.approvals?.mode ?? 'prompt')
-  const permission = new PermissionService({ mode: initialMode })
-  const hooks = new HookBus()
-
-  // Plugin failures are reported but do not abort startup; the brain still has
-  // memory tools.
-  //
-  // The dynamic `import()` MUST happen from the CLI package context: that's
-  // where the workspace deps `lyra-ai-plugin-*` live. Passing this
-  // resolver pins the import site to chat.tsx so bun's resolver finds them.
-  // Claude Code extras (commands + agents) discovery happens BEFORE plugin
-  // load so delegate.task can surface agents.
-  let claudeCommands: ClaudeCommand[] = []
-  let claudeAgents: ClaudeAgent[] = []
-  try {
-    const extras = await discoverClaudeExtras({
-      importsClaudeCode: config.imports?.claudeCode ?? true,
-    })
-    claudeCommands = extras.commands
-    claudeAgents = extras.agents
-  } catch {
-    // Discovery failed; continue without commands/agents.
-  }
+function buildCommandIndex(claudeCommands: ClaudeCommand[]): Map<string, ClaudeCommand> {
   const commandIndex = new Map<string, ClaudeCommand>()
   for (const cmd of claudeCommands) {
     if (!commandIndex.has(cmd.name)) commandIndex.set(cmd.name, cmd)
     if (!commandIndex.has(cmd.id)) commandIndex.set(cmd.id, cmd)
   }
+  return commandIndex
+}
 
-  // OpenAI-compatible LLM config (env-driven; default gpt-4o-mini, swappable to Z.AI/Tencent).
+/** OpenAI-compatible LLM config (env-driven; default gpt-4o-mini, swappable to Z.AI/Tencent). */
+function resolveLlmSettings(config: LyraConfig): {
+  llmApiKey: string
+  llmBaseUrl: string
+  llmModel: string
+} {
   const userLlmKey = process.env.OPENAI_API_KEY ?? process.env.LYRA_LLM_API_KEY
   // No personal key set → fall back to the hosted demo proxy so lyra runs keyless.
   const llmApiKey = userLlmKey ?? DEMO_LLM_TOKEN
@@ -171,43 +138,25 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
     ? resolveLlmBaseUrl()
     : (process.env.LYRA_LLM_BASE_URL ?? DEMO_LLM_BASE_URL)
   const llmModel = process.env.LYRA_LLM_MODEL ?? config.brain?.model ?? DEFAULT_LLM_MODEL
+  return { llmApiKey, llmBaseUrl, llmModel }
+}
 
-  // Sub-brain factory for delegate.task (Phase 9.3). The factory creates a
-  // fresh OpenAIBrain with a custom system prompt. Tools default to none for
-  // delegated work; the parent calls delegate.task only when isolation matters.
-  const delegateFactory: import('lyra-core').DelegateBrainFactory = async ({
-    systemPrompt,
-    tools: subTools,
-  }) => {
-    const subBrain = new OpenAIBrain({
-      apiKey: llmApiKey,
-      baseUrl: llmBaseUrl,
-      model: llmModel,
-      tools: subTools,
-      prefix: buildFrozenPrefix({
-        systemPrompt,
-        memoryIndex: null,
-        identity: null,
-        persona: null,
-        loadedToolNames: [],
-        skills: [],
-        timestamp: null,
-      }),
-    })
-    await subBrain.init()
-    return subBrain as unknown as import('lyra-core').DelegateBrainHandle
-  }
-
-  // Phase 9.5: build sandbox backend BEFORE plugins load. Tools that spawn
-  // subprocesses (shell.run, code.execute, shell.process_start) wrap their
-  // spawn argv through this backend. LYRA_SANDBOX_MODE env var wins over
-  // config (matches hermes' TERMINAL_ENV pattern — per-launch override
-  // without editing config).
+function resolveSandboxMode(config: LyraConfig): 'none' | 'os' | 'docker' {
+  // LYRA_SANDBOX_MODE env var wins over config (matches hermes' TERMINAL_ENV
+  // pattern — per-launch override without editing config).
   const envOverride = process.env.LYRA_SANDBOX_MODE
-  const sandboxMode: 'none' | 'os' | 'docker' =
-    envOverride === 'none' || envOverride === 'os' || envOverride === 'docker'
-      ? envOverride
-      : (config.sandbox?.mode ?? 'none')
+  return envOverride === 'none' || envOverride === 'os' || envOverride === 'docker'
+    ? envOverride
+    : (config.sandbox?.mode ?? 'none')
+}
+
+/**
+ * Phase 9.5: build the sandbox backend BEFORE plugins load. Tools that spawn
+ * subprocesses wrap their spawn argv through this backend. Falls back to a
+ * LocalBackend if init fails, and emits the active-mode banner to stderr.
+ */
+function createSandbox(config: LyraConfig, paths: { dir: string }): SandboxBackend {
+  const sandboxMode = resolveSandboxMode(config)
   let sandbox: SandboxBackend
   try {
     sandbox = makeSandboxBackend({
@@ -238,147 +187,66 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
       `lyra: container sandbox active [${sandbox.label}] — every shell-class spawn runs inside the container; host fs invisible to those tools${config.sandbox?.dockerMountWorkspace ? ' except mounted /workspace' : ''}\n`,
     )
   }
-  // Register dispose hook so docker containers don't leak when lyra exits.
-  // Signal handlers MUST await dispose before exiting; sync `process.exit(0)`
-  // would discard the dispose promise and leave the container orphaned.
-  if (sandbox.dispose) {
-    const disposeOnce = (() => {
-      let done = false
-      return async () => {
-        if (done) return
-        done = true
-        await sandbox.dispose?.().catch(() => {})
-      }
-    })()
-    process.once('SIGINT', () => {
-      void disposeOnce().then(() => process.exit(0))
-    })
-    process.once('SIGTERM', () => {
-      void disposeOnce().then(() => process.exit(0))
-    })
-  }
+  return sandbox
+}
 
-  // Vision routing via the OpenAI-compatible brain is a follow-up; disabled for now.
-  const visionInfer: VisionInferFn | null = null
-
-  // Plugin filter: system + onchain ship; telegram is opt-in via
-  // `lyra telegram setup` which writes ~/.lyra/agents/<id>/telegram-secrets.encrypted
-  // and adds 'telegram' to config.plugins.
-  const pluginNames = (config.plugins ?? []).filter(
-    p => p === 'system' || p === 'onchain' || p === 'telegram',
-  )
-  // Onchain side-band ctx: the Sui client + agent keypair drive every PTB, and
-  // the deterministic policy (mirrored on-chain by lyra::policy) bounds writes.
-  let onchain: Awaited<ReturnType<typeof buildOnchainContext>> | undefined
-  if (pluginNames.includes('onchain')) {
-    onchain = await buildOnchainContext({
-      agent,
-      network: config.network,
-      agentDir: paths.dir,
-      brainProvider: config.brain.provider,
-      brainModel: config.brain.model,
-    })
-  }
-  // Standalone Sui client for the statusbar balance refresher, so the segment
-  // works regardless of which plugins loaded.
-  const balanceClient =
-    onchain?.client ??
-    (
-      await buildOnchainContext({
-        agent,
-        network: config.network,
-        agentDir: paths.dir,
-      })
-    ).client
-  // Phase 12: telegram side-band ctx. We build the runtime context now (before
-  // brain.init) so the plugin can register its listener via ctx.registerListener,
-  // but the dispatch callback is deferred — the slot's `.current` is null until
-  // brain.init resolves and we wire it below. Same for the system-row sink:
-  // populated once state exists.
-  const telegramSlot: TelegramDispatchSlot = { current: null }
-  const telegramSystemRowSink: { current: ((text: string) => void) | null } = { current: null }
-  const telegramInboundRowSink: { current: ((text: string) => void) | null } = { current: null }
-  const telegramAssistantRowSink: { current: ((text: string) => void) | null } = { current: null }
-  // Bridge for inline-keyboard approval. Listener fills the inner refs on
-  // start; chat-telegram's runOne reads them at turn time.
-  const telegramApprovalBridge: TelegramApprovalBridge = {
-    sendApproval: { current: null },
-    installCallbackHandler: { current: null },
-  }
-  let telegram: TelegramRuntimeContext | undefined
-  if (telegramSecrets && pluginNames.includes('telegram')) {
-    telegram = buildTelegramRuntimeContext({
-      botToken: telegramSecrets.botToken,
-      allowedUserIds: telegramSecrets.allowedUserIds,
-      agentName: `agent-${agentId.slice(0, 8)}`,
-      slot: telegramSlot,
-      systemRowSink: telegramSystemRowSink,
-    })
-    telegram.approvalBridge = telegramApprovalBridge
-  }
-  // Local listener registry: plugins register listeners via ctx.registerListener
-  // (e.g. telegram's inbound poller); we collect them here so chat can start them
-  // once brain init is done.
-  const collectedListeners: Listener[] = []
-  const skillsDisabled = { current: [...(config.skills?.disabled ?? [])] }
-  const loadResult = await loadPlugins(pluginNames, {
-    tools,
-    hooks,
-    listeners: {
-      register: l => {
-        collectedListeners.push(l)
-      },
-    },
-    agentDir: paths.dir,
-    agentId,
-    network: config.network,
-    configPath,
-    imports: { claudeCode: config.imports?.claudeCode ?? true },
-    skillsDisabled,
-    activityLogPath: paths.activityLog,
-    workspaceRoot: process.cwd(),
-    delegateFactory,
-    claudeAgents,
-    brainSupportsVision: false,
-    brainModelLabel: config.brain.model ?? config.brain.provider,
-    visionInfer,
-    sandbox,
-    onchain,
-    telegram,
-    resolve: async name => {
-      switch (name) {
-        case 'system':
-          return await import('lyra-plugin-system')
-        case 'onchain':
-          return await import('lyra-plugin-onchain')
-        case 'telegram':
-          return await import('lyra-plugin-telegram')
-        default:
-          throw new Error(`unknown first-party plugin: ${name}`)
-      }
-    },
+/**
+ * Register a dispose hook so docker containers don't leak when lyra exits.
+ * Signal handlers MUST await dispose before exiting; a sync `process.exit(0)`
+ * would discard the dispose promise and leave the container orphaned.
+ */
+function registerSandboxDisposal(sandbox: SandboxBackend): void {
+  if (!sandbox.dispose) return
+  const disposeOnce = (() => {
+    let done = false
+    return async () => {
+      if (done) return
+      done = true
+      await sandbox.dispose?.().catch(() => {})
+    }
+  })()
+  process.once('SIGINT', () => {
+    void disposeOnce().then(() => process.exit(0))
   })
-  if (loadResult.errors.length > 0 || process.env.LYRA_DEBUG_PLUGINS) {
-    const { writeFile } = await import('node:fs/promises')
-    const { join } = await import('node:path')
-    await writeFile(
-      join(paths.dir, 'plugin-debug.log'),
-      JSON.stringify(
-        {
-          ts: Date.now(),
-          pluginNames,
-          loadResult,
-          registeredTools: tools.list().map(t => t.name),
-        },
-        null,
-        2,
-      ),
-    ).catch(() => {})
-  }
+  process.once('SIGTERM', () => {
+    void disposeOnce().then(() => process.exit(0))
+  })
+}
 
-  // MCP discovery: scan ~/.lyra/.mcp.json + ~/.claude/.mcp.json + plugin
-  // cache, spawn each stdio server, register tools as deferred. Failures are
-  // logged but never block startup.
+async function maybeWritePluginDebug(
+  paths: { dir: string },
+  pluginNames: string[],
+  loadResult: Awaited<ReturnType<typeof loadPlugins>>,
+  tools: ToolRegistry,
+): Promise<void> {
+  if (!(loadResult.errors.length > 0 || process.env.LYRA_DEBUG_PLUGINS)) return
+  const { writeFile } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  await writeFile(
+    join(paths.dir, 'plugin-debug.log'),
+    JSON.stringify(
+      {
+        ts: Date.now(),
+        pluginNames,
+        loadResult,
+        registeredTools: tools.list().map(t => t.name),
+      },
+      null,
+      2,
+    ),
+  ).catch(() => {})
+}
+
+/**
+ * MCP discovery: scan ~/.lyra/.mcp.json + ~/.claude/.mcp.json + plugin cache,
+ * spawn each stdio server, register tools as deferred. Failures are logged but
+ * never block startup.
+ */
+async function discoverAndRegisterMcp(
+  config: LyraConfig,
+  tools: ToolRegistry,
+  paths: { dir: string },
+): Promise<McpManager | null> {
   let mcpManager: McpManager | null = null
   try {
     const { servers } = await discoverMcpServers({
@@ -405,6 +273,232 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
   } catch {
     // Discovery itself failed (probably I/O); proceed without MCP.
   }
+  return mcpManager
+}
+
+/** Plugin-contributed prompt sections. */
+function buildExtraGuidance(onchain: unknown, telegram: unknown): string[] {
+  const extraGuidance: string[] = []
+  if (onchain) extraGuidance.push(ONCHAIN_GUIDANCE)
+  if (telegram) extraGuidance.push(TELEGRAM_GUIDANCE)
+  return extraGuidance
+}
+
+function buildCompaction(config: LyraConfig) {
+  if (config.brain?.compaction === null) return null
+  return {
+    threshold: config.brain?.compaction?.threshold ?? 0.5,
+    contextWindow: config.brain?.contextWindow ?? 1_000_000,
+    keepRecent: config.brain?.compaction?.keepRecent ?? 8,
+  }
+}
+
+function buildPersist(config: LyraConfig, dir: string) {
+  const persistConversations = config.brain?.persistConversations !== false
+  return persistConversations ? createFsHistoryPersist({ dir: `${dir}/conversations` }) : undefined
+}
+
+export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<void> {
+  const found = await findAndLoadConfig(opts?.cwd)
+  if (!found) {
+    console.log('No lyra.config.ts found. Run `lyra init` first.')
+    process.exit(1)
+  }
+  let { config } = found
+  const configPath = found.path
+
+  // On Sui the agent IS the signer: one Ed25519 keypair, sourced from the
+  // `LYRA_AGENT_KEY` env (`suiprivkey1…`). No operator wallet, keystore
+  // decrypt, or a Sui wallet dance. The deterministic policy (mirrored
+  // on-chain by `lyra::policy`) bounds what the key may do.
+  const agent = loadAgent()
+  if (!agent) {
+    console.log('No agent key found. Run `lyra init` first (or export a suiprivkey1… key).')
+    process.exit(1)
+  }
+  const agentAddress = agent.address
+  warnAgentAddressMismatch(config, agentAddress)
+  const agentId = placeholderAgentId(agentAddress)
+  const paths = agentPaths.agent(agentId)
+
+  const tgSecretsResult = resolveTelegramSecrets(config)
+  config = tgSecretsResult.config
+  const telegramSecrets = tgSecretsResult.telegramSecrets
+
+  config = await ensureBrainProvider(config, configPath)
+  const importsClaudeCode = config.imports?.claudeCode ?? true
+
+  const tools = new ToolRegistry(config.tools)
+  tools.register(makeMemorySaveTool({ agentId }) as Parameters<typeof tools.register>[0])
+  tools.register(makeMemoryReadTool({ agentId }) as Parameters<typeof tools.register>[0])
+  tools.register(makeMemoryListTool({ agentId }) as Parameters<typeof tools.register>[0])
+  tools.register(makeToolSearchTool(tools) as Parameters<typeof tools.register>[0])
+
+  const initialMode: PermissionMode = opts?.yolo ? 'off' : (config.approvals?.mode ?? 'prompt')
+  const permission = new PermissionService({ mode: initialMode })
+  const hooks = new HookBus()
+
+  // Plugin failures are reported but do not abort startup; the brain still has
+  // memory tools.
+  //
+  // The dynamic `import()` MUST happen from the CLI package context: that's
+  // where the workspace deps `lyra-ai-plugin-*` live. Passing this
+  // resolver pins the import site to chat.tsx so bun's resolver finds them.
+  // Claude Code extras (commands + agents) discovery happens BEFORE plugin
+  // load so delegate.task can surface agents.
+  let claudeCommands: ClaudeCommand[] = []
+  let claudeAgents: ClaudeAgent[] = []
+  try {
+    const extras = await discoverClaudeExtras({ importsClaudeCode })
+    claudeCommands = extras.commands
+    claudeAgents = extras.agents
+  } catch {
+    // Discovery failed; continue without commands/agents.
+  }
+  const commandIndex = buildCommandIndex(claudeCommands)
+
+  const { llmApiKey, llmBaseUrl, llmModel } = resolveLlmSettings(config)
+
+  // Sub-brain factory for delegate.task (Phase 9.3). The factory creates a
+  // fresh OpenAIBrain with a custom system prompt. Tools default to none for
+  // delegated work; the parent calls delegate.task only when isolation matters.
+  const delegateFactory: import('lyra-core').DelegateBrainFactory = async ({
+    systemPrompt,
+    tools: subTools,
+  }) => {
+    const subBrain = new OpenAIBrain({
+      apiKey: llmApiKey,
+      baseUrl: llmBaseUrl,
+      model: llmModel,
+      tools: subTools,
+      prefix: buildFrozenPrefix({
+        systemPrompt,
+        memoryIndex: null,
+        identity: null,
+        persona: null,
+        loadedToolNames: [],
+        skills: [],
+        timestamp: null,
+      }),
+    })
+    await subBrain.init()
+    return subBrain as unknown as import('lyra-core').DelegateBrainHandle
+  }
+
+  // Phase 9.5: build sandbox backend BEFORE plugins load. Tools that spawn
+  // subprocesses (shell.run, code.execute, shell.process_start) wrap their
+  // spawn argv through this backend.
+  const sandbox = createSandbox(config, paths)
+  registerSandboxDisposal(sandbox)
+
+  // Vision routing via the OpenAI-compatible brain is a follow-up; disabled for now.
+  const visionInfer: VisionInferFn | null = null
+
+  // Plugin filter: system + onchain ship; telegram is opt-in via
+  // `lyra telegram setup` which writes ~/.lyra/agents/<id>/telegram-secrets.encrypted
+  // and adds 'telegram' to config.plugins.
+  const pluginNames = (config.plugins ?? []).filter(
+    p => p === 'system' || p === 'onchain' || p === 'telegram',
+  )
+  // Onchain side-band ctx: the Sui client + agent keypair drive every PTB, and
+  // the deterministic policy (mirrored on-chain by lyra::policy) bounds writes.
+  // The standalone balanceClient backs the statusbar balance refresher so the
+  // segment works regardless of which plugins loaded.
+  const buildOnchainContexts = async () => {
+    const onchain = pluginNames.includes('onchain')
+      ? await buildOnchainContext({
+          agent,
+          network: config.network,
+          agentDir: paths.dir,
+          brainProvider: config.brain.provider,
+          brainModel: config.brain.model,
+        })
+      : undefined
+    const balanceClient =
+      onchain?.client ??
+      (
+        await buildOnchainContext({
+          agent,
+          network: config.network,
+          agentDir: paths.dir,
+        })
+      ).client
+    return { onchain, balanceClient }
+  }
+  const { onchain, balanceClient } = await buildOnchainContexts()
+  // Phase 12: telegram side-band ctx. We build the runtime context now (before
+  // brain.init) so the plugin can register its listener via ctx.registerListener,
+  // but the dispatch callback is deferred — the slot's `.current` is null until
+  // brain.init resolves and we wire it below. Same for the system-row sink:
+  // populated once state exists.
+  const telegramSlot: TelegramDispatchSlot = { current: null }
+  const telegramSystemRowSink: { current: ((text: string) => void) | null } = { current: null }
+  const telegramInboundRowSink: { current: ((text: string) => void) | null } = { current: null }
+  const telegramAssistantRowSink: { current: ((text: string) => void) | null } = { current: null }
+  // Bridge for inline-keyboard approval. Listener fills the inner refs on
+  // start; chat-telegram's runOne reads them at turn time.
+  const telegramApprovalBridge: TelegramApprovalBridge = {
+    sendApproval: { current: null },
+    installCallbackHandler: { current: null },
+  }
+  const buildTelegram = (): TelegramRuntimeContext | undefined => {
+    if (!(telegramSecrets && pluginNames.includes('telegram'))) return undefined
+    const tgCtx = buildTelegramRuntimeContext({
+      botToken: telegramSecrets.botToken,
+      allowedUserIds: telegramSecrets.allowedUserIds,
+      agentName: `agent-${agentId.slice(0, 8)}`,
+      slot: telegramSlot,
+      systemRowSink: telegramSystemRowSink,
+    })
+    tgCtx.approvalBridge = telegramApprovalBridge
+    return tgCtx
+  }
+  const telegram = buildTelegram()
+  // Local listener registry: plugins register listeners via ctx.registerListener
+  // (e.g. telegram's inbound poller); we collect them here so chat can start them
+  // once brain init is done.
+  const collectedListeners: Listener[] = []
+  const skillsDisabled = { current: [...(config.skills?.disabled ?? [])] }
+  const loadResult = await loadPlugins(pluginNames, {
+    tools,
+    hooks,
+    listeners: {
+      register: l => {
+        collectedListeners.push(l)
+      },
+    },
+    agentDir: paths.dir,
+    agentId,
+    network: config.network,
+    configPath,
+    imports: { claudeCode: importsClaudeCode },
+    skillsDisabled,
+    activityLogPath: paths.activityLog,
+    workspaceRoot: process.cwd(),
+    delegateFactory,
+    claudeAgents,
+    brainSupportsVision: false,
+    brainModelLabel: config.brain.model ?? config.brain.provider,
+    visionInfer,
+    sandbox,
+    onchain,
+    telegram,
+    resolve: async name => {
+      switch (name) {
+        case 'system':
+          return await import('lyra-plugin-system')
+        case 'onchain':
+          return await import('lyra-plugin-onchain')
+        case 'telegram':
+          return await import('lyra-plugin-telegram')
+        default:
+          throw new Error(`unknown first-party plugin: ${name}`)
+      }
+    },
+  })
+  await maybeWritePluginDebug(paths, pluginNames, loadResult, tools)
+
+  const mcpManager = await discoverAndRegisterMcp(config, tools, paths)
 
   // Memory is local-only; durable receipts/memory go to Walrus via the
   // walrus.store tool, not a per-turn anchor. This no-op preserves the
@@ -425,9 +519,7 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
     readIndexFile(paths.memoryIndex).catch(() => null),
     readMemoryFileOrNull(`${paths.memoryDir}/agent/identity.md`),
     readMemoryFileOrNull(`${paths.memoryDir}/agent/persona.md`),
-    scanSkills({ importsClaudeCode: config.imports?.claudeCode ?? true }).catch(
-      () => [] as SkillRef[],
-    ),
+    scanSkills({ importsClaudeCode }).catch(() => [] as SkillRef[]),
   ])
   // Use tools.list() (includes deferred) for guidance lookup — guidance
   // fires per-tool-namespace, not per-prompt-schema. tools.schemas() is the
@@ -450,10 +542,7 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
     platform: process.platform,
     sandbox: sandbox.envHint?.() ?? null,
   }
-  // Plugin-contributed prompt sections.
-  const extraGuidance: string[] = []
-  if (onchain) extraGuidance.push(ONCHAIN_GUIDANCE)
-  if (telegram) extraGuidance.push(TELEGRAM_GUIDANCE)
+  const extraGuidance = buildExtraGuidance(onchain, telegram)
 
   const buildPrefix = async () => {
     const idx = await readIndexFile(paths.memoryIndex).catch(() => null)
@@ -509,12 +598,14 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
 
   // Phase 12: now that state exists, point the telegram row sinks at it. The
   // dispatch slot stays null until brain.init resolves below.
-  if (telegram) {
+  const wireTelegramRowSinks = (): void => {
+    if (!telegram) return
     telegramSystemRowSink.current = (text: string) => state.pushRow({ role: 'system', text })
     telegramInboundRowSink.current = (text: string) => state.pushRow({ role: 'inbox-tg', text })
     telegramAssistantRowSink.current = (text: string) =>
       state.pushRow({ role: 'telegram-assistant', text })
   }
+  wireTelegramRowSinks()
 
   // Statusline balance refreshers; fired at boot and post-turn. The agent
   // keypair pays gas for every PTB, so its SUI balance is the one that matters.
@@ -587,7 +678,6 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
 
   const bootSpinner = spinner()
   bootSpinner.start(`Connecting to model ${llmModel}`)
-  const persistConversations = config.brain?.persistConversations !== false
   const brain = new OpenAIBrain({
     apiKey: llmApiKey,
     baseUrl: llmBaseUrl,
@@ -595,17 +685,8 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
     tools: tools.schemas(),
     prefix,
     maxOutputTokens: config.brain?.maxOutputTokens,
-    compaction:
-      config.brain?.compaction === null
-        ? null
-        : {
-            threshold: config.brain?.compaction?.threshold ?? 0.5,
-            contextWindow: config.brain?.contextWindow ?? 1_000_000,
-            keepRecent: config.brain?.compaction?.keepRecent ?? 8,
-          },
-    persist: persistConversations
-      ? createFsHistoryPersist({ dir: `${paths.dir}/conversations` })
-      : undefined,
+    compaction: buildCompaction(config),
+    persist: buildPersist(config, paths.dir),
     onToolCall: async call => {
       state.pushRow({
         role: 'tool-call',
@@ -691,7 +772,8 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
   // Phase 12: brain is up. Wire the deferred TG dispatch slot so any inbound
   // TG message that lands once collectedListeners[i].start() fires below
   // routes through brain.infer with source=telegram.
-  if (telegram) {
+  const wireTelegramDispatch = (): void => {
+    if (!telegram) return
     const handle = buildTelegramDispatch({
       activity,
       sync,
@@ -721,6 +803,7 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
       if (next === 'idle' && handle.getQueueSize() > 0) handle.drainQueue()
     })
   }
+  wireTelegramDispatch()
 
   // Initial balances for the status bar (best-effort, never blocks boot).
   refreshBalances()
@@ -763,13 +846,65 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
   // Listener catch-up + WS subscribe runs in the background. `start` only
   // resolves after catch-up finishes, which can be slow on long-restored
   // agents; awaiting it would block the chat from accepting input.
-  for (const l of collectedListeners) {
-    l.start(undefined as never).catch(e => {
+  const startListeners = (): void => {
+    for (const l of collectedListeners) {
+      l.start(undefined as never).catch(e => {
+        state.pushRow({
+          role: 'system',
+          text: `listener ${l.name} failed to start: ${(e as Error).message.slice(0, 160)}`,
+        })
+      })
+    }
+  }
+  startListeners()
+
+  // Per-turn flush. Memory persists locally; durable copies go to Walrus via
+  // walrus.store. The no-op flush keeps the call site for future anchoring
+  // work. Fire-and-forget; chat doesn't wait.
+  const flushTurnInBackground = (): void => {
+    sync
+      .flushTurn()
+      .then(res => {
+        if (res.txHash && res.changedSlots.length > 0) {
+          state.pushRow({
+            role: 'system',
+            text: `synced ${res.changedSlots.join(', ')} (${res.txHash})`,
+          })
+        }
+      })
+      .catch(e => {
+        state.pushRow({
+          role: 'system',
+          text: `sync error: ${summarizeError(e)}`,
+        })
+      })
+  }
+
+  const handleTurnError = async (e: unknown, abortCtrl: AbortController): Promise<void> => {
+    // AbortError = operator pressed Esc; render as a clean sys row, NOT an
+    // error. The activity log gets a paired entry so the post-mortem reflects
+    // operator intent, not a real fault.
+    if ((e instanceof Error && e.name === 'AbortError') || abortCtrl.signal.aborted) {
       state.pushRow({
         role: 'system',
-        text: `listener ${l.name} failed to start: ${(e as Error).message.slice(0, 160)}`,
+        text: 'turn interrupted (esc). brain stopped at the last completed step.',
       })
-    })
+      await activity.append({
+        ts: Date.now(),
+        kind: 'brain-response',
+        data: { content: '(aborted by operator)', toolCalls: 0, finishReason: 'aborted' },
+      })
+      state.setStatus('idle')
+      return
+    }
+    // Mirror real errors to chat.log too — render-layer bugs can swallow the
+    // sys row before it hits the screen, and chat.log is the only artifact
+    // the operator can read post-mortem.
+    const errMsg = e instanceof Error ? e.message : String(e ?? 'unknown error')
+    const dumped = e instanceof Error ? (e.stack ?? e.message) : errMsg
+    console.error('[handleSubmit] error:', dumped)
+    state.pushRow({ role: 'system', text: `error: ${errMsg.slice(0, 300)}` })
+    state.setStatus('error')
   }
 
   const handleSubmit = async (text: string): Promise<void> => {
@@ -834,92 +969,175 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
           cached: turn.usage.cachedTokens,
         })
       }
-      // Per-turn flush. Memory persists locally; durable copies go to Walrus
-      // via walrus.store. The no-op flush keeps the call site for future
-      // anchoring work. Fire-and-forget; chat doesn't wait.
-      sync
-        .flushTurn()
-        .then(res => {
-          if (res.txHash && res.changedSlots.length > 0) {
-            state.pushRow({
-              role: 'system',
-              text: `synced ${res.changedSlots.join(', ')} (${res.txHash})`,
-            })
-          }
-        })
-        .catch(e => {
-          state.pushRow({
-            role: 'system',
-            text: `sync error: ${summarizeError(e)}`,
-          })
-        })
+      flushTurnInBackground()
     } catch (e) {
-      // AbortError = operator pressed Esc; render as a clean sys row, NOT an
-      // error. The activity log gets a paired entry so the post-mortem reflects
-      // operator intent, not a real fault.
-      if ((e instanceof Error && e.name === 'AbortError') || abortCtrl.signal.aborted) {
-        state.pushRow({
-          role: 'system',
-          text: 'turn interrupted (esc). brain stopped at the last completed step.',
-        })
-        await activity.append({
-          ts: Date.now(),
-          kind: 'brain-response',
-          data: { content: '(aborted by operator)', toolCalls: 0, finishReason: 'aborted' },
-        })
-        state.setStatus('idle')
-        return
-      }
-      // Mirror real errors to chat.log too — render-layer bugs can swallow the
-      // sys row before it hits the screen, and chat.log is the only artifact
-      // the operator can read post-mortem.
-      const errMsg = e instanceof Error ? e.message : String(e ?? 'unknown error')
-      const dumped = e instanceof Error ? (e.stack ?? e.message) : errMsg
-      console.error('[handleSubmit] error:', dumped)
-      state.pushRow({ role: 'system', text: `error: ${errMsg.slice(0, 300)}` })
-      state.setStatus('error')
+      await handleTurnError(e, abortCtrl)
     } finally {
       state.setActiveAbort(null)
     }
   }
 
-  const handleSlash = async (cmd: string): Promise<boolean> => {
-    if (cmd === '/exit' || cmd === '/quit') {
+  const slashSync = async (): Promise<boolean> => {
+    state.pushRow({ role: 'system', text: 'flushing memory + activity…' })
+    try {
+      const res = await sync.flushAll()
+      if (res.txHash) {
+        state.pushRow({
+          role: 'system',
+          text: `synced ${res.changedSlots.join(', ')} (${res.txHash})`,
+        })
+        refreshEoaBalance()
+      } else {
+        state.pushRow({ role: 'system', text: 'nothing to sync (everything up to date)' })
+      }
+    } catch (e) {
+      state.pushRow({ role: 'system', text: `sync error: ${summarizeError(e)}` })
+    }
+    return true
+  }
+
+  const slashReset = async (): Promise<boolean> => {
+    try {
+      await brain.clearChannel('tui:stdin')
+      state.pushRow({ role: 'system', text: 'conversation reset (TUI channel cleared)' })
+    } catch (e) {
+      state.pushRow({ role: 'system', text: `reset error: ${summarizeError(e)}` })
+    }
+    return true
+  }
+
+  const slashJobs = async (): Promise<boolean> => {
+    const tool = tools.find('market.listMyJobs')
+    if (!tool) {
+      state.pushRow({
+        role: 'system',
+        text: 'market plugin not loaded; cannot list jobs.',
+      })
+      return true
+    }
+    state.pushRow({ role: 'system', text: 'fetching active jobs…' })
+    try {
+      const res = await tool.handler({ status: 'active', limit: 20 } as never)
+      const data = (res as { ok: boolean; data?: { jobs: unknown[] } }).data
+      const jobs = (data?.jobs ?? []) as Array<{
+        jobId: string
+        role: string
+        counterparty: string | null
+        amount0g: string
+        status: string
+      }>
+      if (jobs.length === 0) {
+        state.pushRow({ role: 'system', text: 'no active escrow jobs.' })
+      } else {
+        const lines = jobs.map(
+          j =>
+            `  job#${j.jobId} · ${j.role}${j.counterparty ? ` w/ ${shortAddr(j.counterparty)}` : ''} · ${j.amount0g} SUI · ${j.status}`,
+        )
+        state.pushRow({
+          role: 'system',
+          text: `active jobs (${jobs.length}):\n${lines.join('\n')}`,
+        })
+      }
+    } catch (e) {
+      state.pushRow({ role: 'system', text: `jobs error: ${summarizeError(e)}` })
+    }
+    return true
+  }
+
+  const slashHelp = (): boolean => {
+    const builtins =
+      "  /sync                flush memory + activity locally\n  /model               switch brain (run lyra model after exiting)\n  /yolo                toggle approval prompts off/on for this session\n  /perms <mode>        set permission mode (off|prompt|strict); no arg shows current\n  /reset               clear this channel's conversation history\n  /exit                quit lyra\n  /help                this message"
+    const claudeBlock =
+      commandIndex.size === 0
+        ? ''
+        : `\n\nClaude Code commands (auto-loaded):\n${[
+            ...new Set([...commandIndex.values()].map(c => c.name)),
+          ]
+            .sort()
+            .map(name => {
+              const c = commandIndex.get(name)!
+              return `  /${c.name}  ${c.description.slice(0, 80)}`
+            })
+            .join('\n')}`
+    state.pushRow({
+      role: 'system',
+      text: `slash commands:\n${builtins}${claudeBlock}`,
+    })
+    return true
+  }
+
+  // Claude Code command match. Strip leading `/`, take first whitespace
+  // segment as the command name, treat the rest as the user-supplied args.
+  const slashClaudeCommand = async (cmd: string): Promise<boolean> => {
+    const rest = cmd.slice(1).trim()
+    if (!rest) return false
+    const { name, args } = splitSlashCommand(rest)
+    const command = commandIndex.get(name)
+    if (!command) return false
+    const inlined = buildCommandMessage(command, args)
+    state.pushRow({
+      role: 'system',
+      text: `↳ command: /${command.name} (${command.id}, ${command.body.length} bytes inlined as user message)`,
+    })
+    // Send the command body as a user message so the brain executes it.
+    try {
+      const refreshed = await buildPrefix()
+      brain.refreshUserContext(refreshed)
+      const turn = await brain.infer({
+        event: {
+          id: newEventId(),
+          source: 'stdin',
+          payload: { label: 'user-message', data: inlined },
+          ts: Date.now(),
+        },
+        channelKey: 'tui:stdin',
+      })
+      state.pushRow({ role: 'assistant', text: turn.content ?? '(no content)' })
+      state.setStatus('idle')
+    } catch (e) {
+      state.pushRow({
+        role: 'system',
+        text: `command error: ${(e as Error).message.slice(0, 200)}`,
+      })
+    }
+    return true
+  }
+
+  // Exact-match builtins that carry no arguments. `/perms` (prefix form) and
+  // the Claude-Code fallthrough are handled separately in handleSlash.
+  const exactSlash: Record<string, () => boolean | Promise<boolean>> = {
+    '/exit': () => {
       state.pushRow({ role: 'system', text: 'goodbye.' })
       handleExit()
       return true
-    }
-    if (cmd === '/model') {
+    },
+    '/quit': () => {
+      state.pushRow({ role: 'system', text: 'goodbye.' })
+      handleExit()
+      return true
+    },
+    '/model': () => {
       state.pushRow({
         role: 'system',
         text: 'Switching brain. (Quit chat first; run `lyra model` to pick a new brain, then re-launch `lyra`.)',
       })
       return true
-    }
-    if (cmd === '/sync') {
-      state.pushRow({ role: 'system', text: 'flushing memory + activity…' })
-      try {
-        const res = await sync.flushAll()
-        if (res.txHash) {
-          state.pushRow({
-            role: 'system',
-            text: `synced ${res.changedSlots.join(', ')} (${res.txHash})`,
-          })
-          refreshEoaBalance()
-        } else {
-          state.pushRow({ role: 'system', text: 'nothing to sync (everything up to date)' })
-        }
-      } catch (e) {
-        state.pushRow({ role: 'system', text: `sync error: ${summarizeError(e)}` })
-      }
-      return true
-    }
-    if (cmd === '/yolo') {
+    },
+    '/sync': slashSync,
+    '/yolo': () => {
       const result = applyYolo(permission)
       state.setApprovalsMode(result.mode)
       state.pushRow({ role: 'system', text: result.message })
       return true
-    }
+    },
+    '/reset': slashReset,
+    '/jobs': slashJobs,
+    '/help': slashHelp,
+  }
+
+  const handleSlash = async (cmd: string): Promise<boolean> => {
+    const exact = exactSlash[cmd]
+    if (exact) return await exact()
     if (cmd === '/perms' || cmd.startsWith('/perms ')) {
       const arg = cmd.split(/\s+/)[1]
       const result = applyPerms(permission, arg)
@@ -927,114 +1145,7 @@ export async function runChat(opts?: { cwd?: string; yolo?: boolean }): Promise<
       state.pushRow({ role: 'system', text: result.message })
       return true
     }
-    if (cmd === '/reset') {
-      try {
-        await brain.clearChannel('tui:stdin')
-        state.pushRow({ role: 'system', text: 'conversation reset (TUI channel cleared)' })
-      } catch (e) {
-        state.pushRow({ role: 'system', text: `reset error: ${summarizeError(e)}` })
-      }
-      return true
-    }
-    if (cmd === '/jobs') {
-      const tool = tools.find('market.listMyJobs')
-      if (!tool) {
-        state.pushRow({
-          role: 'system',
-          text: 'market plugin not loaded; cannot list jobs.',
-        })
-        return true
-      }
-      state.pushRow({ role: 'system', text: 'fetching active jobs…' })
-      try {
-        const res = await tool.handler({ status: 'active', limit: 20 } as never)
-        const data = (res as { ok: boolean; data?: { jobs: unknown[] } }).data
-        const jobs = (data?.jobs ?? []) as Array<{
-          jobId: string
-          role: string
-          counterparty: string | null
-          amount0g: string
-          status: string
-        }>
-        if (jobs.length === 0) {
-          state.pushRow({ role: 'system', text: 'no active escrow jobs.' })
-        } else {
-          const lines = jobs.map(
-            j =>
-              `  job#${j.jobId} · ${j.role}${j.counterparty ? ` w/ ${shortAddr(j.counterparty)}` : ''} · ${j.amount0g} SUI · ${j.status}`,
-          )
-          state.pushRow({
-            role: 'system',
-            text: `active jobs (${jobs.length}):\n${lines.join('\n')}`,
-          })
-        }
-      } catch (e) {
-        state.pushRow({ role: 'system', text: `jobs error: ${summarizeError(e)}` })
-      }
-      return true
-    }
-    if (cmd === '/help') {
-      const builtins =
-        "  /sync                flush memory + activity locally\n  /model               switch brain (run lyra model after exiting)\n  /yolo                toggle approval prompts off/on for this session\n  /perms <mode>        set permission mode (off|prompt|strict); no arg shows current\n  /reset               clear this channel's conversation history\n  /exit                quit lyra\n  /help                this message"
-      const claudeBlock =
-        commandIndex.size === 0
-          ? ''
-          : `\n\nClaude Code commands (auto-loaded):\n${[
-              ...new Set([...commandIndex.values()].map(c => c.name)),
-            ]
-              .sort()
-              .map(name => {
-                const c = commandIndex.get(name)!
-                return `  /${c.name}  ${c.description.slice(0, 80)}`
-              })
-              .join('\n')}`
-      state.pushRow({
-        role: 'system',
-        text: `slash commands:\n${builtins}${claudeBlock}`,
-      })
-      return true
-    }
-    // Claude Code command match. Strip leading `/`, take first whitespace
-    // segment as the command name, treat the rest as the user-supplied args.
-    if (cmd.startsWith('/')) {
-      const rest = cmd.slice(1).trim()
-      if (!rest) return false
-      const space = rest.indexOf(' ')
-      const name = space === -1 ? rest : rest.slice(0, space)
-      const args = space === -1 ? '' : rest.slice(space + 1).trim()
-      const command = commandIndex.get(name)
-      if (!command) return false
-      const trimmedBody = command.body.trim()
-      const inlined = args
-        ? `# Command: /${command.name}${command.argumentHint ? ` (${command.argumentHint})` : ''}\n# User args: ${args}\n\n${trimmedBody}`
-        : `# Command: /${command.name}\n\n${trimmedBody}`
-      state.pushRow({
-        role: 'system',
-        text: `↳ command: /${command.name} (${command.id}, ${command.body.length} bytes inlined as user message)`,
-      })
-      // Send the command body as a user message so the brain executes it.
-      try {
-        const refreshed = await buildPrefix()
-        brain.refreshUserContext(refreshed)
-        const turn = await brain.infer({
-          event: {
-            id: newEventId(),
-            source: 'stdin',
-            payload: { label: 'user-message', data: inlined },
-            ts: Date.now(),
-          },
-          channelKey: 'tui:stdin',
-        })
-        state.pushRow({ role: 'assistant', text: turn.content ?? '(no content)' })
-        state.setStatus('idle')
-      } catch (e) {
-        state.pushRow({
-          role: 'system',
-          text: `command error: ${(e as Error).message.slice(0, 200)}`,
-        })
-      }
-      return true
-    }
+    if (cmd.startsWith('/')) return await slashClaudeCommand(cmd)
     return false
   }
 
@@ -1104,6 +1215,24 @@ async function runModelPicker(config: LyraConfig, configPath: string): Promise<L
   }
   await writeConfigTs(configPath, updated)
   return updated
+}
+
+/** Split `<name> <rest…>` (leading `/` already stripped) into name + args. */
+function splitSlashCommand(rest: string): { name: string; args: string } {
+  const space = rest.indexOf(' ')
+  return {
+    name: space === -1 ? rest : rest.slice(0, space),
+    args: space === -1 ? '' : rest.slice(space + 1).trim(),
+  }
+}
+
+/** Inline a Claude Code command body as a user message (with optional args header). */
+function buildCommandMessage(command: ClaudeCommand, args: string): string {
+  const trimmedBody = command.body.trim()
+  const argHint = command.argumentHint ? ` (${command.argumentHint})` : ''
+  return args
+    ? `# Command: /${command.name}${argHint}\n# User args: ${args}\n\n${trimmedBody}`
+    : `# Command: /${command.name}\n\n${trimmedBody}`
 }
 
 /**

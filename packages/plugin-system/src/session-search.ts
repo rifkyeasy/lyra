@@ -57,28 +57,28 @@ export function makeSessionSearch(deps: SessionSearchDeps): ToolDef<z.infer<type
       const limit = args.limit ?? 25
       const matcher = compileMatcher(args.query, !!args.regex)
       const matches: { ts: number; kind: string; line: string }[] = []
+      // Process one raw line: returns 1 when it counts as a match (and records
+      // it if we're still under `limit`), 0 otherwise. Mirrors the original
+      // inline loop body exactly.
+      const consume = (line: string): number => {
+        if (!line.trim()) return 0
+        const hit = matchActivityLine(line, args.kind, matcher)
+        if (!hit) return 0
+        if (matches.length < limit) {
+          matches.push({
+            ts: hit.ts,
+            kind: hit.kind,
+            line: line.length > 4_000 ? `${line.slice(0, 4_000)}…` : line,
+          })
+        }
+        return 1
+      }
       const stream = createReadStream(deps.activityLogPath, { encoding: 'utf8' })
       const rl = readline.createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY })
       let total = 0
       try {
         for await (const line of rl) {
-          if (!line.trim()) continue
-          let parsed: { ts?: number; kind?: string }
-          try {
-            parsed = JSON.parse(line) as { ts?: number; kind?: string }
-          } catch {
-            continue
-          }
-          if (args.kind && args.kind !== 'all' && parsed.kind !== args.kind) continue
-          if (!matcher(line)) continue
-          total++
-          if (matches.length < limit) {
-            matches.push({
-              ts: parsed.ts ?? 0,
-              kind: parsed.kind ?? 'unknown',
-              line: line.length > 4_000 ? `${line.slice(0, 4_000)}…` : line,
-            })
-          }
+          total += consume(line)
         }
       } finally {
         rl.close()
@@ -87,6 +87,27 @@ export function makeSessionSearch(deps: SessionSearchDeps): ToolDef<z.infer<type
       return { ok: true, data: { matches, total } }
     },
   }
+}
+
+/**
+ * Parse one activity-log line and apply the kind filter + matcher. Returns the
+ * entry's timestamp + kind when it should count as a match, or null when the
+ * line is unparseable, filtered out by `kind`, or fails the matcher.
+ */
+function matchActivityLine(
+  line: string,
+  kind: string | undefined,
+  matcher: (line: string) => boolean,
+): { ts: number; kind: string } | null {
+  let parsed: { ts?: number; kind?: string }
+  try {
+    parsed = JSON.parse(line) as { ts?: number; kind?: string }
+  } catch {
+    return null
+  }
+  if (kind && kind !== 'all' && parsed.kind !== kind) return null
+  if (!matcher(line)) return null
+  return { ts: parsed.ts ?? 0, kind: parsed.kind ?? 'unknown' }
 }
 
 function compileMatcher(query: string, isRegex: boolean): (line: string) => boolean {

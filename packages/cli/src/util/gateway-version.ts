@@ -85,6 +85,40 @@ export async function fetchDaemonVersion(
  * If on-disk CLI version cannot be resolved → `action='no-cli-version'`
  * (skip check defensively).
  */
+/** SIGTERM the daemon whose pid lives in `lockFile`. Returns the killed pid, if any. */
+function killDaemonFromLock(lockFile: string | undefined): number | undefined {
+  if (!(lockFile && existsSync(lockFile))) return undefined
+  try {
+    const parsed = JSON.parse(readFileSync(lockFile, 'utf8')) as { pid?: number }
+    if (typeof parsed.pid !== 'number') return undefined
+    try {
+      process.kill(parsed.pid, 'SIGTERM')
+      return parsed.pid
+    } catch {
+      return undefined
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Wait for the daemon to exit (its socket disappears) up to `timeoutMs`, then
+ * force-remove the socket if it's still there. The lockfile cleanup happens
+ * when the parent invokes spawnGatewayDaemon (which clears stale locks at boot).
+ */
+async function waitForSocketGone(socketPath: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline && existsSync(socketPath)) {
+    await new Promise(r => setTimeout(r, 100))
+  }
+  if (existsSync(socketPath)) {
+    try {
+      unlinkSync(socketPath)
+    } catch {}
+  }
+}
+
 export async function ensureGatewayVersionMatchesCli(
   opts: VersionCheckOpts,
 ): Promise<VersionCheckResult> {
@@ -116,34 +150,9 @@ export async function ensureGatewayVersionMatchesCli(
     return { action: 'ok', cliVersion, daemonVersion }
   }
 
-  // Drift detected. Kill the daemon via pid in lockfile.
-  let killedPid: number | undefined
-  if (opts.lockFile && existsSync(opts.lockFile)) {
-    try {
-      const parsed = JSON.parse(readFileSync(opts.lockFile, 'utf8')) as { pid?: number }
-      if (typeof parsed.pid === 'number') {
-        try {
-          process.kill(parsed.pid, 'SIGTERM')
-          killedPid = parsed.pid
-        } catch {}
-      }
-    } catch {}
-  }
-
-  // Wait for the socket to disappear (daemon exits, cleans up).
-  const killTimeoutMs = opts.killTimeoutMs ?? 4000
-  const deadline = Date.now() + killTimeoutMs
-  while (Date.now() < deadline && existsSync(opts.socketPath)) {
-    await new Promise(r => setTimeout(r, 100))
-  }
-
-  // If socket still here, force-remove it. The lockfile cleanup happens when
-  // the parent invokes spawnGatewayDaemon (which clears stale locks at boot).
-  if (existsSync(opts.socketPath)) {
-    try {
-      unlinkSync(opts.socketPath)
-    } catch {}
-  }
+  // Drift detected. Kill the daemon via pid in lockfile, then wait for exit.
+  const killedPid = killDaemonFromLock(opts.lockFile)
+  await waitForSocketGone(opts.socketPath, opts.killTimeoutMs ?? 4000)
 
   return {
     action: 'restarted',

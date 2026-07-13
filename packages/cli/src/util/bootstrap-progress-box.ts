@@ -228,6 +228,13 @@ export class BootstrapProgressBox {
     this.renderedLines = lines.length
   }
 
+  /** Timestamp text for a stage: its start time while running, else its end time. */
+  private stageTimeText(s: StageState): string {
+    return s.status === 'running'
+      ? formatTime(s.startedSec ?? 0)
+      : formatTime(s.endedSec ?? this.elapsedSec())
+  }
+
   /**
    * Non-TTY fallback: print one line per state change instead of a redrawn
    * box. Tracks last-printed status per stage so re-renders don't spam.
@@ -237,18 +244,8 @@ export class BootstrapProgressBox {
       const prev = this.nonTtyLastPrinted.get(s.id)
       if (prev === s.status) continue
       if (s.status === 'pending') continue
-      const tag =
-        s.status === 'done'
-          ? '[ok]'
-          : s.status === 'failed'
-            ? '[fail]'
-            : s.status === 'running'
-              ? '[..]'
-              : ''
-      const time =
-        s.status === 'running'
-          ? formatTime(s.startedSec ?? 0)
-          : formatTime(s.endedSec ?? this.elapsedSec())
+      const tag = nonTtyStatusTag(s.status)
+      const time = this.stageTimeText(s)
       this.out.write(`${tag} [${time}] ${s.label}\n`)
       this.nonTtyLastPrinted.set(s.id, s.status)
     }
@@ -269,6 +266,13 @@ export class BootstrapProgressBox {
     const glyph = pickGlyph(s, this.tickIdx)
     return `│  ${timeCol} ${labelText} ${glyph} │`
   }
+}
+
+function nonTtyStatusTag(status: BootstrapStageStatus): string {
+  if (status === 'done') return '[ok]'
+  if (status === 'failed') return '[fail]'
+  if (status === 'running') return '[..]'
+  return ''
 }
 
 function pickTimeText(s: StageState): string | null {

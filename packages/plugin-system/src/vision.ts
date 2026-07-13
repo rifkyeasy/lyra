@@ -166,32 +166,46 @@ async function loadImage(
   guard: PathGuard,
 ): Promise<{ bytes: Uint8Array; mediaType: string }> {
   if (args.image_path) {
-    const expanded = args.image_path.startsWith('~')
-      ? args.image_path.replace('~', homedir())
-      : args.image_path
-    if (!isAbsolute(expanded)) {
-      throw new Error(`image_path must be absolute, got: ${args.image_path}`)
-    }
-    const allowed = guard.check(expanded)
-    if (!allowed.allowed) {
-      throw new Error(allowed.reason ?? 'protected path')
-    }
-    const buffer = await readFile(expanded)
-    if (buffer.byteLength > MAX_IMAGE_BYTES) {
-      throw new Error(
-        `image too large: ${buffer.byteLength} bytes (limit ${MAX_IMAGE_BYTES}). Resize and retry.`,
-      )
-    }
-    const ext = (expanded.match(/\.([a-zA-Z0-9]+)$/)?.[1] ?? '').toLowerCase()
-    const mediaType = sniffMimeFromBytes(new Uint8Array(buffer), ext || null)
-    if (!mediaType) {
-      throw new Error(`unrecognized image format at ${expanded}`)
-    }
-    return { bytes: new Uint8Array(buffer), mediaType }
+    return loadImageFromPath(args.image_path, guard)
   }
-
   // image_url path
-  const raw = args.image_url!
+  return loadImageFromUrl(args.image_url!)
+}
+
+/** Expand `~`, require an absolute path, and run it through the path guard. */
+function resolveLocalImagePath(rawPath: string, guard: PathGuard): string {
+  const expanded = rawPath.startsWith('~') ? rawPath.replace('~', homedir()) : rawPath
+  if (!isAbsolute(expanded)) {
+    throw new Error(`image_path must be absolute, got: ${rawPath}`)
+  }
+  const allowed = guard.check(expanded)
+  if (!allowed.allowed) {
+    throw new Error(allowed.reason ?? 'protected path')
+  }
+  return expanded
+}
+
+async function loadImageFromPath(
+  rawPath: string,
+  guard: PathGuard,
+): Promise<{ bytes: Uint8Array; mediaType: string }> {
+  const expanded = resolveLocalImagePath(rawPath, guard)
+  const buffer = await readFile(expanded)
+  if (buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error(
+      `image too large: ${buffer.byteLength} bytes (limit ${MAX_IMAGE_BYTES}). Resize and retry.`,
+    )
+  }
+  const ext = (expanded.match(/\.([a-zA-Z0-9]+)$/)?.[1] ?? '').toLowerCase()
+  const mediaType = sniffMimeFromBytes(new Uint8Array(buffer), ext || null)
+  if (!mediaType) {
+    throw new Error(`unrecognized image format at ${expanded}`)
+  }
+  return { bytes: new Uint8Array(buffer), mediaType }
+}
+
+/** Parse + validate a user URL: http(s) only, and reject private/loopback hosts. */
+function validateImageUrl(raw: string): URL {
   let url: URL
   try {
     url = new URL(raw)
@@ -204,6 +218,37 @@ async function loadImage(
   if (hostIsPrivate(url.hostname)) {
     throw new Error(`host blocked (private/loopback/metadata): ${url.hostname}`)
   }
+  return url
+}
+
+/** Enforce the HTTP status + size gate and return the collected image bytes. */
+async function readImageBody(res: Response): Promise<Uint8Array> {
+  if (!res.ok) {
+    throw new Error(`fetch http ${res.status}`)
+  }
+  const { bytes, truncated } = await collectUpToBytes(res.body, MAX_IMAGE_BYTES + 1)
+  if (truncated || bytes.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error(`image too large: exceeds ${MAX_IMAGE_BYTES} bytes. Resize and retry.`)
+  }
+  return bytes
+}
+
+/** Resolve the media type from magic bytes, falling back to the response header / URL ext. */
+function resolveUrlMediaType(bytes: Uint8Array, res: Response, url: URL): string {
+  const headerType = (res.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
+  const extFromUrl = (url.pathname.match(/\.([a-zA-Z0-9]+)$/)?.[1] ?? '').toLowerCase()
+  const sniffed = sniffMimeFromBytes(bytes, extFromUrl || null)
+  const mediaType =
+    sniffed ??
+    (headerType?.startsWith('image/') ? headerType : (KNOWN_MIME_BY_EXT[extFromUrl] ?? null))
+  if (!mediaType) {
+    throw new Error(`unrecognized image format from ${url.hostname}`)
+  }
+  return mediaType
+}
+
+async function loadImageFromUrl(rawUrl: string): Promise<{ bytes: Uint8Array; mediaType: string }> {
+  const url = validateImageUrl(rawUrl)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   try {
@@ -213,22 +258,8 @@ async function loadImage(
       signal: controller.signal,
       headers: { 'user-agent': 'lyra/vision.analyze' },
     })
-    if (!res.ok) {
-      throw new Error(`fetch http ${res.status}`)
-    }
-    const { bytes, truncated } = await collectUpToBytes(res.body, MAX_IMAGE_BYTES + 1)
-    if (truncated || bytes.byteLength > MAX_IMAGE_BYTES) {
-      throw new Error(`image too large: exceeds ${MAX_IMAGE_BYTES} bytes. Resize and retry.`)
-    }
-    const headerType = (res.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
-    const extFromUrl = (url.pathname.match(/\.([a-zA-Z0-9]+)$/)?.[1] ?? '').toLowerCase()
-    const sniffed = sniffMimeFromBytes(bytes, extFromUrl || null)
-    const mediaType =
-      sniffed ??
-      (headerType?.startsWith('image/') ? headerType : (KNOWN_MIME_BY_EXT[extFromUrl] ?? null))
-    if (!mediaType) {
-      throw new Error(`unrecognized image format from ${url.hostname}`)
-    }
+    const bytes = await readImageBody(res)
+    const mediaType = resolveUrlMediaType(bytes, res, url)
     return { bytes, mediaType }
   } catch (e) {
     const err = e as Error

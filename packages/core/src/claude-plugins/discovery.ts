@@ -29,36 +29,55 @@ export async function discoverClaudeExtras(
   }
 
   for (const market of marketplaces) {
-    if (!market.isDirectory()) continue
-    const marketDir = join(cacheRoot, market.name)
-    let plugins: Dirent[]
-    try {
-      plugins = (await readdir(marketDir, { withFileTypes: true })) as Dirent[]
-    } catch {
-      continue
-    }
-    for (const plugin of plugins) {
-      if (!plugin.isDirectory()) continue
-      const pluginDir = join(marketDir, plugin.name)
-      let versions: Dirent[]
-      try {
-        versions = (await readdir(pluginDir, { withFileTypes: true })) as Dirent[]
-      } catch {
-        continue
-      }
-      const versionDirs = versions
-        .filter(v => v.isDirectory())
-        .map(v => v.name)
-        .sort()
-      const latest = versionDirs[versionDirs.length - 1]
-      if (!latest) continue
-      const versionDir = join(pluginDir, latest)
-      const source = { marketplace: market.name, plugin: plugin.name, version: latest }
-      await collectFromDir(join(versionDir, 'commands'), source, 'command', commands, agents)
-      await collectFromDir(join(versionDir, 'agents'), source, 'agent', commands, agents)
-    }
+    await collectFromMarketplace(cacheRoot, market, commands, agents)
   }
   return { commands, agents }
+}
+
+async function collectFromMarketplace(
+  cacheRoot: string,
+  market: Dirent,
+  commands: ClaudeCommand[],
+  agents: ClaudeAgent[],
+): Promise<void> {
+  if (!market.isDirectory()) return
+  const marketDir = join(cacheRoot, market.name)
+  let plugins: Dirent[]
+  try {
+    plugins = (await readdir(marketDir, { withFileTypes: true })) as Dirent[]
+  } catch {
+    return
+  }
+  for (const plugin of plugins) {
+    await collectFromPluginVersions(marketDir, market.name, plugin, commands, agents)
+  }
+}
+
+async function collectFromPluginVersions(
+  marketDir: string,
+  marketName: string,
+  plugin: Dirent,
+  commands: ClaudeCommand[],
+  agents: ClaudeAgent[],
+): Promise<void> {
+  if (!plugin.isDirectory()) return
+  const pluginDir = join(marketDir, plugin.name)
+  let versions: Dirent[]
+  try {
+    versions = (await readdir(pluginDir, { withFileTypes: true })) as Dirent[]
+  } catch {
+    return
+  }
+  const versionDirs = versions
+    .filter(v => v.isDirectory())
+    .map(v => v.name)
+    .sort()
+  const latest = versionDirs[versionDirs.length - 1]
+  if (!latest) return
+  const versionDir = join(pluginDir, latest)
+  const source = { marketplace: marketName, plugin: plugin.name, version: latest }
+  await collectFromDir(join(versionDir, 'commands'), source, 'command', commands, agents)
+  await collectFromDir(join(versionDir, 'agents'), source, 'agent', commands, agents)
 }
 
 async function collectFromDir(
@@ -77,39 +96,50 @@ async function collectFromDir(
     return
   }
   for (const entry of entries) {
-    if (!(entry.isFile() && entry.name.endsWith('.md'))) continue
-    const filePath = join(dir, entry.name)
-    let raw: string
-    try {
-      raw = await readFile(filePath, 'utf8')
-    } catch {
-      continue
-    }
-    const parsed = parseFile(raw)
-    if (!parsed) continue
-    const id = `${source.plugin}:${parsed.name ?? entry.name.replace(/\.md$/, '')}`
-    const name = parsed.name ?? entry.name.replace(/\.md$/, '')
-    if (kind === 'command') {
-      commands.push({
-        id,
-        name,
-        description: parsed.description ?? '',
-        argumentHint: parsed.argumentHint,
-        path: filePath,
-        body: parsed.body,
-        source,
-      })
-    } else {
-      agents.push({
-        id,
-        name,
-        description: parsed.description ?? '',
-        model: parsed.model,
-        path: filePath,
-        body: parsed.body,
-        source,
-      })
-    }
+    await collectEntry(entry, dir, source, kind, commands, agents)
+  }
+}
+
+async function collectEntry(
+  entry: Dirent,
+  dir: string,
+  source: { marketplace: string; plugin: string; version: string },
+  kind: 'command' | 'agent',
+  commands: ClaudeCommand[],
+  agents: ClaudeAgent[],
+): Promise<void> {
+  if (!(entry.isFile() && entry.name.endsWith('.md'))) return
+  const filePath = join(dir, entry.name)
+  let raw: string
+  try {
+    raw = await readFile(filePath, 'utf8')
+  } catch {
+    return
+  }
+  const parsed = parseFile(raw)
+  if (!parsed) return
+  const id = `${source.plugin}:${parsed.name ?? entry.name.replace(/\.md$/, '')}`
+  const name = parsed.name ?? entry.name.replace(/\.md$/, '')
+  if (kind === 'command') {
+    commands.push({
+      id,
+      name,
+      description: parsed.description ?? '',
+      argumentHint: parsed.argumentHint,
+      path: filePath,
+      body: parsed.body,
+      source,
+    })
+  } else {
+    agents.push({
+      id,
+      name,
+      description: parsed.description ?? '',
+      model: parsed.model,
+      path: filePath,
+      body: parsed.body,
+      source,
+    })
   }
 }
 

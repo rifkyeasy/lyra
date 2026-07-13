@@ -25,6 +25,48 @@ export interface GatewayStartOpts {
   agentId?: string
 }
 
+/**
+ * When a socket already exists, check for version drift and auto-restart on
+ * mismatch so operators don't have to `lyra gateway restart` after upgrading
+ * the binary. Exits the process when a healthy same-version daemon is found.
+ */
+async function checkExistingSocket(socketPath: string, agentId: string): Promise<void> {
+  const { createHash } = await import('node:crypto')
+  const { homedir } = await import('node:os')
+  const identityHash = createHash('sha256').update(agentId).digest('hex').slice(0, 16)
+  const lockFile = join(homedir(), '.lyra', 'locks', `lyra-gateway-${identityHash}.lock`)
+  const { ensureGatewayVersionMatchesCli } = await import('../util/gateway-version')
+  const drift = await ensureGatewayVersionMatchesCli({ socketPath, lockFile })
+  if (drift.action === 'ok' || drift.action === 'no-cli-version') {
+    console.error(
+      `lyra gateway start: socket already exists at ${socketPath} — gateway may be running (version ${drift.daemonVersion ?? 'unknown'}). Try \`lyra gateway stop\` first.`,
+    )
+    process.exit(1)
+  }
+  console.log(`note: ${drift.note}`)
+}
+
+type SpawnResult = Awaited<ReturnType<typeof spawnGatewayDaemon>>
+
+function reportSpawnResult(
+  result: SpawnResult,
+  socketPath: string,
+  sBoot: ReturnType<typeof spinner>,
+): void {
+  if (result.ready) {
+    sBoot.stop(`gateway running pid=${result.pid} socket=${socketPath}`)
+    console.log('stop with: lyra gateway stop')
+    console.log('logs:      lyra gateway logs -f')
+    return
+  }
+  const reason = result.reason ?? 'unknown'
+  const detail = result.error ? `: ${result.error}` : ''
+  sBoot.stop(
+    `gateway did not bind socket within 10s (reason=${reason} pid=${result.pid ?? '?'})${detail}; check above output`,
+  )
+  process.exit(1)
+}
+
 export async function runGatewayStart(opts: GatewayStartOpts): Promise<void> {
   const found = await findAndLoadConfig()
   if (!found?.config) {
@@ -45,22 +87,8 @@ export async function runGatewayStart(opts: GatewayStartOpts): Promise<void> {
   const paths = agentPaths.agent(agentId)
   const socketPath = join(paths.dir, 'gateway.sock')
 
-  // If the socket exists, check for version drift; auto-restart on mismatch so
-  // operators don't have to `lyra gateway restart` after upgrading the binary.
   if (existsSync(socketPath)) {
-    const { createHash } = await import('node:crypto')
-    const { homedir } = await import('node:os')
-    const identityHash = createHash('sha256').update(agentId).digest('hex').slice(0, 16)
-    const lockFile = join(homedir(), '.lyra', 'locks', `lyra-gateway-${identityHash}.lock`)
-    const { ensureGatewayVersionMatchesCli } = await import('../util/gateway-version')
-    const drift = await ensureGatewayVersionMatchesCli({ socketPath, lockFile })
-    if (drift.action === 'ok' || drift.action === 'no-cli-version') {
-      console.error(
-        `lyra gateway start: socket already exists at ${socketPath} — gateway may be running (version ${drift.daemonVersion ?? 'unknown'}). Try \`lyra gateway stop\` first.`,
-      )
-      process.exit(1)
-    }
-    console.log(`note: ${drift.note}`)
+    await checkExistingSocket(socketPath, agentId)
   }
 
   // Spawn gateway daemon detached. The daemon reads LYRA_AGENT_KEY + LYRA_*
@@ -74,16 +102,5 @@ export async function runGatewayStart(opts: GatewayStartOpts): Promise<void> {
     socketPath,
     timeoutMs: 10_000,
   })
-  if (result.ready) {
-    sBoot.stop(`gateway running pid=${result.pid} socket=${socketPath}`)
-    console.log('stop with: lyra gateway stop')
-    console.log('logs:      lyra gateway logs -f')
-  } else {
-    const reason = result.reason ?? 'unknown'
-    const detail = result.error ? `: ${result.error}` : ''
-    sBoot.stop(
-      `gateway did not bind socket within 10s (reason=${reason} pid=${result.pid ?? '?'})${detail}; check above output`,
-    )
-    process.exit(1)
-  }
+  reportSpawnResult(result, socketPath, sBoot)
 }

@@ -78,29 +78,7 @@ export function sanitizeInbound(input: SanitizeInput, opts: SanitizeOpts): Sanit
   const pairingApproved = opts.pairingStore?.isApproved(platform, String(input.fromId)) ?? false
 
   if (!(inAllowlist || pairingApproved)) {
-    if (opts.pairingStore) {
-      const code = opts.pairingStore.generateCode(
-        platform,
-        String(input.fromId),
-        input.fromUsername ?? formatDisplayName(input.fromFirstName, input.fromLastName) ?? '',
-      )
-      if (code) {
-        return {
-          ok: false,
-          reason: 'sender-not-allowed',
-          action: 'send-pairing-code',
-          code,
-          pairedUserId: input.fromId,
-          pairedUserName:
-            input.fromUsername ?? formatDisplayName(input.fromFirstName, input.fromLastName),
-        }
-      }
-      return { ok: false, reason: 'pairing-rate-limited' }
-    }
-    if (opts.allowedUserIds.length === 0) {
-      return { ok: false, reason: 'no-allowlist-default-deny' }
-    }
-    return { ok: false, reason: 'sender-not-allowed' }
+    return resolveUnauthorized(input, opts, platform, input.fromId)
   }
 
   const cap = opts.maxTextLength ?? 2000
@@ -119,6 +97,43 @@ export function sanitizeInbound(input: SanitizeInput, opts: SanitizeOpts): Sanit
       ts: Date.now(),
     },
   }
+}
+
+/**
+ * Resolve an inbound message from a sender who is neither on the allowlist nor
+ * pairing-approved. With a pairing store: issue a pairing code (or report
+ * rate-limiting). Without one: default-deny (empty allowlist) or plain
+ * sender-not-allowed.
+ */
+function resolveUnauthorized(
+  input: SanitizeInput,
+  opts: SanitizeOpts,
+  platform: string,
+  fromId: number,
+): SanitizeResult {
+  if (opts.pairingStore) {
+    const code = opts.pairingStore.generateCode(
+      platform,
+      String(fromId),
+      input.fromUsername ?? formatDisplayName(input.fromFirstName, input.fromLastName) ?? '',
+    )
+    if (code) {
+      return {
+        ok: false,
+        reason: 'sender-not-allowed',
+        action: 'send-pairing-code',
+        code,
+        pairedUserId: fromId,
+        pairedUserName:
+          input.fromUsername ?? formatDisplayName(input.fromFirstName, input.fromLastName),
+      }
+    }
+    return { ok: false, reason: 'pairing-rate-limited' }
+  }
+  if (opts.allowedUserIds.length === 0) {
+    return { ok: false, reason: 'no-allowlist-default-deny' }
+  }
+  return { ok: false, reason: 'sender-not-allowed' }
 }
 
 function formatDisplayName(first: string | null, last: string | null): string | null {

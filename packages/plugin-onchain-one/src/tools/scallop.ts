@@ -9,13 +9,14 @@
  * withdraw is caught before broadcast.
  */
 
+import type { Transaction } from '@mysten/sui/transactions'
 import { Scallop } from '@scallop-io/sui-scallop-sdk'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
+import { simulateAndExecute } from '../execute'
 import { checkMinimum } from '../minimums'
-import { evaluatePolicy, suiToMist } from '../policy'
+import { policyBlock, suiToMist } from '../policy'
 import { PROTOCOL_IDS } from '../protocol-ids'
-import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
 import { fundSui, returnSuiToVault } from '../vault-fund'
 
@@ -135,6 +136,38 @@ type AmountArgs = z.infer<typeof AmountSchema>
 // find the agent's SUI market coin by type pattern (robust to package upgrades).
 const MARKET_COIN_SUI_RE = /::reserve::MarketCoin<0x0*2::sui::SUI>$/
 
+/**
+ * Convert the requested SUI amount to the Scallop SUI MARKET-COIN units to redeem
+ * on withdraw (withdrawQuick redeems market coins, not underlying SUI), at the
+ * position's rate and clamped to the agent's held balance — so a full/over-withdraw
+ * cleanly redeems everything. Returns an error when there is nothing to withdraw.
+ */
+async function scallopRedeemAmount(
+  ctx: OnchainRuntimeContext,
+  sdk: Scallop,
+  amountMist: bigint,
+): Promise<bigint | { error: string }> {
+  const [balances, q] = await Promise.all([
+    ctx.client.getAllBalances({ owner: ctx.agentAddress }),
+    sdk.createScallopQuery().then(async query => {
+      await query.init()
+      return query
+    }),
+  ])
+  const mc = balances.find(b => MARKET_COIN_SUI_RE.test(b.coinType))
+  const heldMc = BigInt(mc?.totalBalance ?? '0')
+  if (heldMc <= 0n) return { error: 'no Scallop SUI position to withdraw' }
+  const port = (await q.getUserPortfolio({ walletAddress: ctx.agentAddress })) as {
+    lendings?: Array<{ coinName?: string; suppliedCoin?: number }>
+  }
+  const supplied = (port.lendings ?? []).find(l => l.coinName === 'sui')?.suppliedCoin ?? 0
+  const suppliedMist = BigInt(Math.floor(supplied * 1e9))
+  // redeem = requested/rate, where rate = supplied/heldMc; clamp to heldMc.
+  let redeemMc = suppliedMist > 0n ? (amountMist * heldMc) / suppliedMist : heldMc
+  if (redeemMc > heldMc || redeemMc <= 0n) redeemMc = heldMc
+  return redeemMc
+}
+
 async function runScallopWrite(
   ctx: OnchainRuntimeContext,
   amount: string,
@@ -145,99 +178,82 @@ async function runScallopWrite(
   const amountMist = suiToMist(amount)
   if (amountMist === undefined || amountMist <= 0n)
     return { ok: false, error: `invalid amount "${amount}"` }
-  // Minimum guard on supply (withdraw pulls the agent's own funds back).
+  // Minimum guard + policy gate on the value-moving supply (withdraw pulls the
+  // agent's own funds back).
   if (kind === 'supply') {
     const tooSmall = checkMinimum('supply', amountMist)
     if (tooSmall) return { ok: false, error: tooSmall }
-  }
-
-  // Policy gate on the value-moving supply.
-  if (ctx.policy && kind === 'supply') {
-    const verdict = evaluatePolicy(
-      { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'scallop' },
-      ctx.policy,
-    )
-    if (!verdict.allowed)
-      return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
+    const blocked = policyBlock(ctx.policy, {
+      kind: 'transfer',
+      coinType: SUI_TYPE,
+      amountMist,
+      protocol: 'scallop',
+    })
+    if (blocked) return { ok: false, error: blocked }
   }
 
   try {
     const sdk = await newScallop(ctx)
-    const builder = await sdk.createScallopBuilder()
-    const tx = builder.createTxBlock()
-    tx.setSender(ctx.agentAddress)
-    let out: unknown
-    if (kind === 'supply') {
-      // Source the deposit from the treasury vault (policy-enforced) when wired,
-      // then hand the vault-drawn Coin<SUI> to Scallop's non-quick `deposit` (the
-      // `*Quick` helpers auto-select the agent's own coins, so they can't be vault-
-      // funded). `deposit` returns the market coin, sent to the agent below.
-      const coin = fundSui(tx.txBlock as never, ctx, amountMist, {
-        protocol: PROTOCOL_IDS.scallop,
-        kind: 'supply',
-        memo: 'scallop supply',
-      })
-      out = await tx.deposit(coin as never, 'sui')
-    } else {
-      // withdrawQuick redeems a MARKET-COIN amount, not underlying SUI. Convert
-      // the requested SUI to market coins at the position's rate and clamp to the
-      // held balance, so a full/over-withdraw cleanly redeems everything.
-      const [balances, q] = await Promise.all([
-        ctx.client.getAllBalances({ owner: ctx.agentAddress }),
-        sdk.createScallopQuery().then(async query => {
-          await query.init()
-          return query
-        }),
-      ])
-      const mc = balances.find(b => MARKET_COIN_SUI_RE.test(b.coinType))
-      const heldMc = BigInt(mc?.totalBalance ?? '0')
-      if (heldMc <= 0n) return { ok: false, error: 'no Scallop SUI position to withdraw' }
-      const port = (await q.getUserPortfolio({ walletAddress: ctx.agentAddress })) as {
-        lendings?: Array<{ coinName?: string; suppliedCoin?: number }>
-      }
-      const supplied = (port.lendings ?? []).find(l => l.coinName === 'sui')?.suppliedCoin ?? 0
-      const suppliedMist = BigInt(Math.floor(supplied * 1e9))
-      // redeem = requested/rate, where rate = supplied/heldMc; clamp to heldMc.
-      let redeemMc = suppliedMist > 0n ? (amountMist * heldMc) / suppliedMist : heldMc
-      if (redeemMc > heldMc || redeemMc <= 0n) redeemMc = heldMc
-      out = await tx.withdrawQuick(Number(redeemMc), 'sui')
-    }
-    if (out) {
-      // Option 1: cycle withdrawn SUI back into the vault (treasury stays intact);
-      // supply's market coin and the no-vault case go to the agent.
-      const cycled = kind === 'withdraw' && returnSuiToVault(tx.txBlock as never, ctx, out as never)
-      if (!cycled) tx.transferObjects([out as never], ctx.agentAddress)
-    }
-    const transaction = tx.txBlock
+    const built = await buildScallopWriteTx(ctx, sdk, amountMist, kind)
+    if ('error' in built) return { ok: false, error: built.error }
 
-    const sim = await simulate(ctx.client, transaction, ctx.agentAddress)
-    if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-
-    const res = await ctx.client.signAndExecuteTransaction({
-      signer: ctx.keypair,
-      transaction,
-      options: { showEffects: true },
-    })
-    if (res.effects?.status?.status !== 'success') {
-      return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
-    }
-    // Wait for the tx to settle/index so a follow-up action (e.g. an immediate
-    // withdraw after a supply) doesn't race the not-yet-indexed position.
-    await ctx.client.waitForTransaction({ digest: res.digest })
+    // Simulate-before-write, then execute + wait for indexing (shared helper).
+    const exec = await simulateAndExecute(ctx, built.tx)
+    if (!exec.ok) return exec
     return {
       ok: true,
       data: {
         protocol: 'scallop',
         action: kind,
         amountSui: amount,
-        digest: res.digest,
-        simGasUsed: sim.gasUsed,
+        digest: exec.value.digest,
+        simGasUsed: exec.value.gasUsed,
         policyEnforced: ctx.policy != null,
       },
     }
   } catch (e) {
     return { ok: false, error: (e as Error).message.slice(0, 240) }
   }
+}
+
+/**
+ * Build the Scallop supply/withdraw PTB: fund the deposit from the vault (supply)
+ * or redeem market coins (withdraw), then route the produced coin — cycling
+ * withdrawn SUI back into the vault when possible, else to the agent.
+ */
+async function buildScallopWriteTx(
+  ctx: OnchainRuntimeContext,
+  sdk: Scallop,
+  amountMist: bigint,
+  kind: 'supply' | 'withdraw',
+): Promise<{ tx: Transaction } | { error: string }> {
+  const builder = await sdk.createScallopBuilder()
+  const tx = builder.createTxBlock()
+  tx.setSender(ctx.agentAddress)
+  let out: unknown
+  if (kind === 'supply') {
+    // Source the deposit from the treasury vault (policy-enforced) when wired,
+    // then hand the vault-drawn Coin<SUI> to Scallop's non-quick `deposit` (the
+    // `*Quick` helpers auto-select the agent's own coins, so they can't be vault-
+    // funded). `deposit` returns the market coin, sent to the agent below.
+    const coin = fundSui(tx.txBlock as never, ctx, amountMist, {
+      protocol: PROTOCOL_IDS.scallop,
+      kind: 'supply',
+      memo: 'scallop supply',
+    })
+    out = await tx.deposit(coin as never, 'sui')
+  } else {
+    const redeemMc = await scallopRedeemAmount(ctx, sdk, amountMist)
+    if (typeof redeemMc === 'object') return { error: redeemMc.error }
+    out = await tx.withdrawQuick(Number(redeemMc), 'sui')
+  }
+  if (out) {
+    // Option 1: cycle withdrawn SUI back into the vault (treasury stays intact);
+    // supply's market coin and the no-vault case go to the agent.
+    const cycled = kind === 'withdraw' && returnSuiToVault(tx.txBlock as never, ctx, out as never)
+    if (!cycled) tx.transferObjects([out as never], ctx.agentAddress)
+  }
+  return { tx: tx.txBlock as Transaction }
 }
 
 export function makeScallopSupply(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {

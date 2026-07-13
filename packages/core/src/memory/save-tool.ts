@@ -80,19 +80,10 @@ export function makeMemorySaveTool({
 
       const existing = await readTopic(dir, partition, slug)
       const isProfile = slug === PROFILE_SLUG && partition === 'user'
-      const fm: MemoryFrontmatter = {
-        name: isProfile ? PROFILE_SLUG : args.name,
-        description: isProfile
-          ? (existing?.frontmatter.description ?? args.description)
-          : args.description,
-        type: args.type,
-        createdAt: existing?.frontmatter.createdAt ?? now,
-        updatedAt: now,
-      }
       const topic: MemoryTopic = {
         partition,
         slug,
-        frontmatter: fm,
+        frontmatter: buildSaveFrontmatter(args, isProfile, existing, now),
         body: existing ? mergeBody(existing.body, args.content, slug) : args.content,
       }
       await writeTopic(dir, topic)
@@ -100,16 +91,8 @@ export function makeMemorySaveTool({
       const indexPath = agentDir
         ? join(agentDir, 'memory', 'MEMORY.md')
         : agentPaths.agent(agentId).memoryIndex
-      let index = await readIndexFile(indexPath)
       const file = `${partition}/${slug}.md`
-      if (!index.entries.has(file)) {
-        index = addEntryLine(index, {
-          file,
-          title: args.name,
-          hook: args.description,
-        })
-        await writeIndexFile(indexPath, index)
-      }
+      await upsertIndexEntry(indexPath, file, args.name, args.description)
 
       const data: MemorySaveData = { file, partition, slug, updated: existing !== null }
       return { ok: true, data }
@@ -119,6 +102,42 @@ export function makeMemorySaveTool({
 
 function partitionForType(type: MemoryType): MemoryPartition {
   return type.startsWith('agent-') ? 'agent' : 'user'
+}
+
+/** Build the frontmatter for a save, preserving profile invariants + prior timestamps. */
+function buildSaveFrontmatter(
+  args: MemorySaveArgs,
+  isProfile: boolean,
+  existing: MemoryTopic | null,
+  now: string,
+): MemoryFrontmatter {
+  return {
+    name: isProfile ? PROFILE_SLUG : args.name,
+    description: isProfile
+      ? (existing?.frontmatter.description ?? args.description)
+      : args.description,
+    type: args.type,
+    createdAt: existing?.frontmatter.createdAt ?? now,
+    updatedAt: now,
+  }
+}
+
+/** Add the topic's index line to MEMORY.md if it isn't already registered. */
+async function upsertIndexEntry(
+  indexPath: string,
+  file: string,
+  name: string,
+  description: string,
+): Promise<void> {
+  let index = await readIndexFile(indexPath)
+  if (!index.entries.has(file)) {
+    index = addEntryLine(index, {
+      file,
+      title: name,
+      hook: description,
+    })
+    await writeIndexFile(indexPath, index)
+  }
 }
 
 /**

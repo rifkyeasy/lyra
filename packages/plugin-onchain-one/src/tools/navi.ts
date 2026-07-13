@@ -12,10 +12,10 @@ import { Transaction } from '@mysten/sui/transactions'
 import type { ToolDef } from 'lyra-core'
 import { NAVISDKClient, borrowCoin, depositCoin, pool, repayDebt, withdrawCoin } from 'navi-sdk'
 import { z } from 'zod'
+import { simulateAndExecute } from '../execute'
 import { checkMinimum } from '../minimums'
-import { evaluatePolicy, suiToMist } from '../policy'
+import { policyBlock, suiToMist } from '../policy'
 import { PROTOCOL_IDS } from '../protocol-ids'
-import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
 import { fundSui, returnSuiToVault } from '../vault-fund'
 
@@ -107,6 +107,47 @@ export function makeNaviPosition(ctx: OnchainRuntimeContext): ToolDef<Record<str
 const AmountSchema = z.object({ amount: z.string().min(1).describe('Amount of SUI, e.g. "1.5".') })
 type AmountArgs = z.infer<typeof AmountSchema>
 
+/** Build the NAVI PTB for the given action (deposit/withdraw/borrow/repay of SUI). */
+async function buildNaviTx(
+  ctx: OnchainRuntimeContext,
+  kind: 'supply' | 'withdraw' | 'borrow' | 'repay',
+  amountMist: bigint,
+): Promise<Transaction> {
+  const tx = new Transaction()
+  const suiPool = (pool as Record<string, unknown>).Sui
+  if (kind === 'supply') {
+    // Source the supply from the treasury vault (policy-enforced) when wired.
+    const coin = fundSui(tx, ctx, amountMist, {
+      protocol: PROTOCOL_IDS.navi,
+      kind: 'supply',
+      memo: 'navi supply',
+    })
+    await depositCoin(tx as never, suiPool as never, coin as never, Number(amountMist))
+  } else if (kind === 'withdraw') {
+    // navi-sdk's withdrawCoin already wraps the withdrawn Balance into a Coin
+    // (via coin::from_balance) and returns [coin]. Option 1: cycle it back into
+    // the vault (treasury stays intact); fall back to the agent when no vault.
+    const [coin] = await withdrawCoin(tx as never, suiPool as never, Number(amountMist))
+    if (!returnSuiToVault(tx, ctx, coin as never))
+      tx.transferObjects([coin as never], ctx.agentAddress)
+  } else if (kind === 'borrow') {
+    // Borrow against supplied collateral; park the borrowed SUI in the vault
+    // (spendable under policy) when wired, else hand it to the agent.
+    const [coin] = await borrowCoin(tx as never, suiPool as never, Number(amountMist))
+    if (!returnSuiToVault(tx, ctx, coin as never))
+      tx.transferObjects([coin as never], ctx.agentAddress)
+  } else {
+    // repay: draw the repayment from the vault (policy-enforced) and pay the debt.
+    const coin = fundSui(tx, ctx, amountMist, {
+      protocol: PROTOCOL_IDS.navi,
+      kind: 'repay',
+      memo: 'navi repay',
+    })
+    await repayDebt(tx as never, suiPool as never, coin as never, Number(amountMist))
+  }
+  return tx
+}
+
 async function runNaviWrite(
   ctx: OnchainRuntimeContext,
   amount: string,
@@ -119,83 +160,36 @@ async function runNaviWrite(
     return { ok: false, error: `invalid amount "${amount}"` }
   // Minimum guard for value-moving actions (withdraw brings value back in).
   const minAction = kind === 'borrow' ? 'borrow' : kind === 'withdraw' ? null : 'supply'
-  if (minAction) {
-    const tooSmall = checkMinimum(minAction, amountMist)
-    if (tooSmall) return { ok: false, error: tooSmall }
-  }
+  const tooSmall = minAction ? checkMinimum(minAction, amountMist) : null
+  if (tooSmall) return { ok: false, error: tooSmall }
 
   // Policy gate on value-moving actions (borrow creates debt + hands out funds;
   // repay/supply move SUI out). Withdraw pulls the agent's own funds back.
-  if (ctx.policy && kind !== 'withdraw') {
-    const verdict = evaluatePolicy(
-      {
-        kind: 'transfer',
-        coinType: SUI_TYPE,
-        amountMist,
-        protocol: kind === 'borrow' ? 'borrow' : 'navi',
-      },
-      ctx.policy,
-    )
-    if (!verdict.allowed)
-      return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
+  const protocol = kind === 'borrow' ? 'borrow' : 'navi'
+  if (kind !== 'withdraw') {
+    const blocked = policyBlock(ctx.policy, {
+      kind: 'transfer',
+      coinType: SUI_TYPE,
+      amountMist,
+      protocol,
+    })
+    if (blocked) return { ok: false, error: blocked }
   }
 
   try {
-    const tx = new Transaction()
-    const suiPool = (pool as Record<string, unknown>).Sui
-    if (kind === 'supply') {
-      // Source the supply from the treasury vault (policy-enforced) when wired.
-      const coin = fundSui(tx, ctx, amountMist, {
-        protocol: PROTOCOL_IDS.navi,
-        kind: 'supply',
-        memo: 'navi supply',
-      })
-      await depositCoin(tx as never, suiPool as never, coin as never, Number(amountMist))
-    } else if (kind === 'withdraw') {
-      // navi-sdk's withdrawCoin already wraps the withdrawn Balance into a Coin
-      // (via coin::from_balance) and returns [coin]. Option 1: cycle it back into
-      // the vault (treasury stays intact); fall back to the agent when no vault.
-      const [coin] = await withdrawCoin(tx as never, suiPool as never, Number(amountMist))
-      if (!returnSuiToVault(tx, ctx, coin as never))
-        tx.transferObjects([coin as never], ctx.agentAddress)
-    } else if (kind === 'borrow') {
-      // Borrow against supplied collateral; park the borrowed SUI in the vault
-      // (spendable under policy) when wired, else hand it to the agent.
-      const [coin] = await borrowCoin(tx as never, suiPool as never, Number(amountMist))
-      if (!returnSuiToVault(tx, ctx, coin as never))
-        tx.transferObjects([coin as never], ctx.agentAddress)
-    } else {
-      // repay: draw the repayment from the vault (policy-enforced) and pay the debt.
-      const coin = fundSui(tx, ctx, amountMist, {
-        protocol: PROTOCOL_IDS.navi,
-        kind: 'repay',
-        memo: 'navi repay',
-      })
-      await repayDebt(tx as never, suiPool as never, coin as never, Number(amountMist))
-    }
-
-    const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-    if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-
-    const res = await ctx.client.signAndExecuteTransaction({
-      signer: ctx.keypair,
-      transaction: tx,
-      options: { showEffects: true },
-    })
-    if (res.effects?.status?.status !== 'success') {
-      return { ok: false, error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}` }
-    }
-    // Wait for the tx to settle/index so a follow-up action (e.g. an immediate
-    // withdraw after a supply) doesn't race NAVI's not-yet-settled accounting.
-    await ctx.client.waitForTransaction({ digest: res.digest })
+    const tx = await buildNaviTx(ctx, kind, amountMist)
+    // Simulate-before-write, then execute + wait for indexing so a follow-up
+    // action doesn't race NAVI's not-yet-settled accounting (shared helper).
+    const exec = await simulateAndExecute(ctx, tx)
+    if (!exec.ok) return exec
     return {
       ok: true,
       data: {
         protocol: 'navi',
         action: kind,
         amountSui: amount,
-        digest: res.digest,
-        simGasUsed: sim.gasUsed,
+        digest: exec.value.digest,
+        simGasUsed: exec.value.gasUsed,
         policyEnforced: ctx.policy != null,
       },
     }

@@ -13,6 +13,34 @@ export interface SplitOpts {
   numbered?: boolean
 }
 
+/**
+ * Compute the exclusive end index for the chunk starting at `cursor`.
+ *
+ * Starts at `cursor + maxLen` (clamped to the text end) and, when that would
+ * split mid-text, backs up: to the last newline if it lands inside an unclosed
+ * fenced code block, otherwise to the nearest word/line boundary past the
+ * halfway mark. Returns the initial end when no better boundary is found.
+ */
+function findChunkEnd(text: string, cursor: number, maxLen: number): number {
+  const end = Math.min(cursor + maxLen, text.length)
+  if (end >= text.length) return end
+
+  // Avoid splitting inside a fenced code block — if there's an unclosed
+  // ``` between cursor and end, back up to the last newline before end.
+  const segment = text.slice(cursor, end)
+  const fencesInSegment = (segment.match(/```/g) || []).length
+  if (fencesInSegment % 2 === 1) {
+    const lastNewline = text.lastIndexOf('\n', end - 1)
+    return lastNewline > cursor ? lastNewline : end
+  }
+
+  // Prefer to split on word boundary when possible
+  const lastSpace = text.lastIndexOf(' ', end)
+  const lastNewline = text.lastIndexOf('\n', end)
+  const splitAt = Math.max(lastSpace, lastNewline)
+  return splitAt > cursor + Math.floor(maxLen / 2) ? splitAt : end
+}
+
 export function splitMessage(text: string, opts: SplitOpts = {}): string[] {
   const maxLen = opts.maxLen ?? DEFAULT_MAX_LEN
   const numbered = opts.numbered ?? true
@@ -22,27 +50,7 @@ export function splitMessage(text: string, opts: SplitOpts = {}): string[] {
   const chunks: string[] = []
   let cursor = 0
   while (cursor < text.length) {
-    let end = Math.min(cursor + maxLen, text.length)
-
-    // Avoid splitting inside a fenced code block — if there's an unclosed
-    // ``` between cursor and end, back up to the last newline before end.
-    if (end < text.length) {
-      const segment = text.slice(cursor, end)
-      const fencesInSegment = (segment.match(/```/g) || []).length
-      if (fencesInSegment % 2 === 1) {
-        const lastNewline = text.lastIndexOf('\n', end - 1)
-        if (lastNewline > cursor) end = lastNewline
-      } else {
-        // Prefer to split on word boundary when possible
-        const lastSpace = text.lastIndexOf(' ', end)
-        const lastNewline = text.lastIndexOf('\n', end)
-        const splitAt = Math.max(lastSpace, lastNewline)
-        if (splitAt > cursor + Math.floor(maxLen / 2)) {
-          end = splitAt
-        }
-      }
-    }
-
+    const end = findChunkEnd(text, cursor, maxLen)
     chunks.push(text.slice(cursor, end))
     cursor = end
     // Skip the leading whitespace at the new cursor (we split on it)

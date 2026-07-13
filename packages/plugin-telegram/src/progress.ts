@@ -168,58 +168,80 @@ export class ProgressTracker {
     const text = capProgressText(this.lines.join('\n'))
     // Skip no-op flushes: nothing changed since the last send/edit.
     if (text === this.lastFlushedText) return
-    const remaining = PROGRESS_EDIT_INTERVAL_MS - (Date.now() - this.lastEditTs)
-    if (!force && remaining > 0 && this.messageId !== null) {
-      // Throttle: schedule one trailing edit if not already pending.
-      if (!this.pendingTimer) {
-        this.pendingTimer = setTimeout(() => {
-          this.pendingTimer = null
-          void this.flush()
-        }, remaining)
-      }
-      return
-    }
+    if (this.scheduleThrottledFlush(force)) return
     this.pendingTimer = null
-    const md = escapeMarkdownV2(text)
     try {
-      if (this.messageId === null) {
-        const sent = await this.bot.api.sendMessage(this.chatId, md, {
-          parse_mode: 'MarkdownV2',
-        })
-        this.messageId = sent.message_id
-      } else if (this.canEdit) {
-        await this.bot.api.editMessageText(this.chatId, this.messageId, md, {
-          parse_mode: 'MarkdownV2',
-        })
-      } else {
-        // Flood-mode fallback: append the latest line as a new message.
-        const lastLine = this.lines[this.lines.length - 1] ?? ''
-        await this.bot.api.sendMessage(this.chatId, escapeMarkdownV2(lastLine), {
-          parse_mode: 'MarkdownV2',
-        })
-      }
+      await this.sendPrimary(escapeMarkdownV2(text))
       this.lastEditTs = Date.now()
       this.lastFlushedText = text
     } catch (err) {
-      const msg = String((err as Error).message ?? '').toLowerCase()
-      if (msg.includes('flood') || msg.includes('too many requests') || msg.includes('429')) {
-        this.canEdit = false
-      } else if (isMarkdownParseError(err)) {
-        // MarkdownV2 escape miss; retry as plain text once.
-        try {
-          const plain = stripMarkdownV2(text)
-          if (this.messageId === null) {
-            const sent = await this.bot.api.sendMessage(this.chatId, plain)
-            this.messageId = sent.message_id
-          } else {
-            await this.bot.api.editMessageText(this.chatId, this.messageId, plain)
-          }
-          this.lastEditTs = Date.now()
-        } catch {
-          /* swallow — never block dispatch */
-        }
+      await this.handleFlushError(err, text)
+    }
+  }
+
+  /**
+   * Throttle guard: within the edit interval (and once a message exists),
+   * schedule a single trailing edit and report `true` so the caller returns
+   * without sending now. Returns `false` when it's OK to flush immediately
+   * (forced, interval elapsed, or no message sent yet).
+   */
+  private scheduleThrottledFlush(force: boolean): boolean {
+    const remaining = PROGRESS_EDIT_INTERVAL_MS - (Date.now() - this.lastEditTs)
+    if (force || remaining <= 0 || this.messageId === null) return false
+    // Throttle: schedule one trailing edit if not already pending.
+    if (!this.pendingTimer) {
+      this.pendingTimer = setTimeout(() => {
+        this.pendingTimer = null
+        void this.flush()
+      }, remaining)
+    }
+    return true
+  }
+
+  /** Send the first message or edit the existing one (flood-mode: append). */
+  private async sendPrimary(md: string): Promise<void> {
+    if (this.messageId === null) {
+      const sent = await this.bot.api.sendMessage(this.chatId, md, {
+        parse_mode: 'MarkdownV2',
+      })
+      this.messageId = sent.message_id
+    } else if (this.canEdit) {
+      await this.bot.api.editMessageText(this.chatId, this.messageId, md, {
+        parse_mode: 'MarkdownV2',
+      })
+    } else {
+      // Flood-mode fallback: append the latest line as a new message.
+      const lastLine = this.lines[this.lines.length - 1] ?? ''
+      await this.bot.api.sendMessage(this.chatId, escapeMarkdownV2(lastLine), {
+        parse_mode: 'MarkdownV2',
+      })
+    }
+  }
+
+  /**
+   * Classify a failed flush: TG flood → drop into append-only mode; a
+   * MarkdownV2 parse miss → retry once as plain text. All other errors are
+   * swallowed so progress never blocks dispatch.
+   */
+  private async handleFlushError(err: unknown, text: string): Promise<void> {
+    const msg = String((err as Error).message ?? '').toLowerCase()
+    if (msg.includes('flood') || msg.includes('too many requests') || msg.includes('429')) {
+      this.canEdit = false
+      return
+    }
+    if (!isMarkdownParseError(err)) return
+    // MarkdownV2 escape miss; retry as plain text once.
+    try {
+      const plain = stripMarkdownV2(text)
+      if (this.messageId === null) {
+        const sent = await this.bot.api.sendMessage(this.chatId, plain)
+        this.messageId = sent.message_id
+      } else {
+        await this.bot.api.editMessageText(this.chatId, this.messageId, plain)
       }
-      // All other errors swallowed.
+      this.lastEditTs = Date.now()
+    } catch {
+      /* swallow — never block dispatch */
     }
   }
 }

@@ -19,7 +19,7 @@ import {
   clearWebhookBeforePolling,
 } from './recovery'
 import { DELIVERY_FAILURE_NOTICE, sendWithRetry } from './retry'
-import { sanitizeInbound } from './sanitize'
+import { type SanitizeInput, type SanitizeResult, sanitizeInbound } from './sanitize'
 import { buildSessionKey } from './session-key'
 import type { TelegramDispatchInput, TelegramRuntimeContext } from './types'
 import { startTypingLoop } from './typing'
@@ -55,6 +55,24 @@ export function formatApprovalResolution(choice: ApprovalChoice, byUserId: numbe
           ? '✅ Always allowed'
           : '❌ Denied'
   return `${label} (by ${byUserId})`
+}
+
+/** Answer a callback query, swallowing any failure (best-effort UX ack). */
+async function answerCallbackSafe(ctx: Context, text: string): Promise<void> {
+  try {
+    await ctx.answerCallbackQuery({ text })
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Await a best-effort side effect (processing hook), swallowing failures. */
+async function safeAwait(fn: () => Promise<void> | void): Promise<void> {
+  try {
+    await fn()
+  } catch {
+    /* never block on hook failures */
+  }
 }
 
 /**
@@ -140,22 +158,14 @@ export class TelegramListener {
       console.log(
         `[telegram] callback_query dropped: malformed data=${(q.data ?? '').slice(0, 80)}`,
       )
-      try {
-        await ctx.answerCallbackQuery({ text: 'malformed approval callback' })
-      } catch {
-        /* ignore */
-      }
+      await answerCallbackSafe(ctx, 'malformed approval callback')
       return
     }
     if (this.opts.allowedUserIds.length > 0 && !this.opts.allowedUserIds.includes(q.from.id)) {
       console.log(
         `[telegram] callback_query dropped: unauthorized user=${q.from.id} (allowlist=${this.opts.allowedUserIds.join(',')})`,
       )
-      try {
-        await ctx.answerCallbackQuery({ text: '⛔ You are not authorized to approve commands.' })
-      } catch {
-        /* ignore */
-      }
+      await answerCallbackSafe(ctx, '⛔ You are not authorized to approve commands.')
       return
     }
     const resolver = this.approvalResolver
@@ -163,31 +173,33 @@ export class TelegramListener {
       console.log(
         `[telegram] callback_query dropped: no resolver pending for approval=${parsed.approvalId} choice=${parsed.choice}`,
       )
-      try {
-        await ctx.answerCallbackQuery({ text: 'no approval pending' })
-      } catch {
-        /* ignore */
-      }
+      await answerCallbackSafe(ctx, 'no approval pending')
       return
     }
     console.log(
       `[telegram] callback_query resolved: approval=${parsed.approvalId} choice=${parsed.choice} from=${q.from.id}`,
     )
     resolver(parsed.approvalId, parsed.choice, q.from.id)
-    try {
-      await ctx.answerCallbackQuery({ text: `✓ ${parsed.choice}` })
-    } catch {
-      /* ignore */
-    }
-    // Resolve the modal visually: append the choice + drop the inline
-    // keyboard. Without this, every clicked approval message stays on
-    // screen with all four buttons, leaving operators unsure whether
-    // their tap registered. Best-effort — if the edit fails (rate
-    // limit, message age, deleted), the underlying approval is still
-    // resolved at the runtime level, so we swallow the error.
+    await answerCallbackSafe(ctx, `✓ ${parsed.choice}`)
+    await this.resolveApprovalModal(ctx, q, parsed.choice)
+  }
+
+  /**
+   * Resolve the modal visually: append the choice + drop the inline
+   * keyboard. Without this, every clicked approval message stays on
+   * screen with all four buttons, leaving operators unsure whether
+   * their tap registered. Best-effort — if the edit fails (rate
+   * limit, message age, deleted), the underlying approval is still
+   * resolved at the runtime level, so we swallow the error.
+   */
+  private async resolveApprovalModal(
+    ctx: Context,
+    q: NonNullable<Context['callbackQuery']>,
+    choice: ApprovalChoice,
+  ): Promise<void> {
     const originalText =
       typeof q.message?.text === 'string' && q.message.text.length > 0 ? q.message.text : null
-    const suffix = formatApprovalResolution(parsed.choice, q.from.id)
+    const suffix = formatApprovalResolution(choice, q.from.id)
     try {
       if (originalText) {
         await ctx.editMessageText(`${originalText}\n\n${suffix}`, { reply_markup: undefined })
@@ -463,41 +475,12 @@ export class TelegramListener {
       const handled = await this.maybeHandleLink(ctx, msg.from.id, msg.text.trim())
       if (handled) return
     }
-    const sanitized = sanitizeInbound(
-      {
-        chatType: msg.chat.type,
-        chatId: msg.chat.id,
-        fromId: msg.from?.id ?? null,
-        fromIsBot: msg.from?.is_bot ?? false,
-        fromUsername: msg.from?.username ?? null,
-        fromFirstName: msg.from?.first_name ?? null,
-        fromLastName: msg.from?.last_name ?? null,
-        text: msg.text ?? msg.caption ?? null,
-        messageId: msg.message_id,
-        forwardedFrom:
-          (msg as { forward_from?: unknown; forward_origin?: unknown }).forward_from ??
-          (msg as { forward_origin?: unknown }).forward_origin ??
-          null,
-        mediaGroupId: msg.media_group_id ?? null,
-      },
-      {
-        allowedUserIds: this.opts.allowedUserIds,
-        pairingStore: this.opts.pairingStore,
-      },
-    )
+    const sanitized = sanitizeInbound(toSanitizeInput(msg), {
+      allowedUserIds: this.opts.allowedUserIds,
+      pairingStore: this.opts.pairingStore,
+    })
     if (!sanitized.ok) {
-      if (sanitized.action === 'send-pairing-code' && sanitized.code) {
-        const text = formatPairingMessage({
-          code: sanitized.code,
-          agentName: this.opts.agentName,
-        })
-        try {
-          await this.bot.api.sendMessage(msg.chat.id, text)
-        } catch (sendErr) {
-          this.log(`pairing-code send failed: ${(sendErr as Error).message?.slice(0, 200) ?? ''}`)
-        }
-      }
-      this.log(`drop: ${sanitized.reason} from chat=${msg.chat.id}`)
+      await this.handleRejected(msg, sanitized)
       return
     }
     const event = sanitized.event
@@ -516,6 +499,28 @@ export class TelegramListener {
     })
   }
 
+  /**
+   * Handle a message the sanitizer rejected: DM a pairing code when one was
+   * issued (best-effort), then log the drop reason.
+   */
+  private async handleRejected(
+    msg: NonNullable<Context['message']>,
+    sanitized: Extract<SanitizeResult, { ok: false }>,
+  ): Promise<void> {
+    if (sanitized.action === 'send-pairing-code' && sanitized.code) {
+      const text = formatPairingMessage({
+        code: sanitized.code,
+        agentName: this.opts.agentName,
+      })
+      try {
+        await this.bot.api.sendMessage(msg.chat.id, text)
+      } catch (sendErr) {
+        this.log(`pairing-code send failed: ${(sendErr as Error).message?.slice(0, 200) ?? ''}`)
+      }
+    }
+    this.log(`drop: ${sanitized.reason} from chat=${msg.chat.id}`)
+  }
+
   private handleFlushed(chatId: number, batch: FlushedBatch): void {
     const existing = this.inflight.get(chatId)
     const next = (existing ?? Promise.resolve()).then(() => this.dispatchOne(chatId, batch))
@@ -530,13 +535,8 @@ export class TelegramListener {
   private async dispatchOne(chatId: number, batch: FlushedBatch): Promise<void> {
     const messageId = batch.latestMessageId
     void reactProcessing(this.bot, chatId, messageId)
-    if (this.opts.onProcessingStart) {
-      try {
-        await this.opts.onProcessingStart(chatId, messageId)
-      } catch {
-        /* never block on hook failures */
-      }
-    }
+    const startHook = this.opts.onProcessingStart
+    if (startHook) await safeAwait(() => startHook(chatId, messageId))
     // Show "typing..." in the chat header for the duration of the brain turn.
     // TG's chat action expires after ~5s, so the loop refreshes on a 4.5s
     // interval. Cancel via try/finally so it stops in both happy and error
@@ -576,24 +576,7 @@ export class TelegramListener {
       void reactSuccess(this.bot, chatId, messageId)
     } catch (err) {
       ok = false
-      const msg = err instanceof Error ? err.message : String(err)
-      const stack = err instanceof Error && err.stack ? `\n${err.stack}` : ''
-      console.error(`[telegram] dispatch failed: ${msg.slice(0, 500)}${stack}`)
-      void reactError(this.bot, chatId, messageId)
-      // Translate LedgerInsufficientError into an actionable topup hint
-      // instead of the generic "something went wrong" reply. Detect by
-      // name (avoids requiring the plugin to import core's typed class).
-      const isLedger = err instanceof Error && err.name === 'LedgerInsufficientError'
-      const replyText = isLedger
-        ? `⚠️ I need a top-up to keep working.\n\n${msg}`
-        : 'sorry, something went wrong on my side. try again in a moment.'
-      try {
-        await this.bot.api.sendMessage(chatId, replyText, {
-          reply_parameters: { message_id: messageId, allow_sending_without_reply: true },
-        })
-      } catch {
-        /* swallow */
-      }
+      await this.reportDispatchFailure(chatId, messageId, err)
     } finally {
       // Flush any pending throttled progress edit before clearing the
       // typing loop. finalize() is idempotent, swallows errors, and is safe
@@ -601,12 +584,35 @@ export class TelegramListener {
       await tracker.finalize().catch(() => {})
       stopTyping()
     }
-    if (this.opts.onProcessingEnd) {
-      try {
-        await this.opts.onProcessingEnd(chatId, messageId, ok)
-      } catch {
-        /* never block */
-      }
+    const endHook = this.opts.onProcessingEnd
+    if (endHook) await safeAwait(() => endHook(chatId, messageId, ok))
+  }
+
+  /**
+   * Report a failed dispatch turn: log, flip the reaction to error, and DM the
+   * user a reply. A LedgerInsufficientError becomes an actionable top-up hint
+   * (detected by name to avoid importing core's typed class); everything else
+   * gets the generic apology. The reply send is best-effort.
+   */
+  private async reportDispatchFailure(
+    chatId: number,
+    messageId: number,
+    err: unknown,
+  ): Promise<void> {
+    const msg = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error && err.stack ? `\n${err.stack}` : ''
+    console.error(`[telegram] dispatch failed: ${msg.slice(0, 500)}${stack}`)
+    void reactError(this.bot, chatId, messageId)
+    const isLedger = err instanceof Error && err.name === 'LedgerInsufficientError'
+    const replyText = isLedger
+      ? `⚠️ I need a top-up to keep working.\n\n${msg}`
+      : 'sorry, something went wrong on my side. try again in a moment.'
+    try {
+      await this.bot.api.sendMessage(chatId, replyText, {
+        reply_parameters: { message_id: messageId, allow_sending_without_reply: true },
+      })
+    } catch {
+      /* swallow */
     }
   }
 
@@ -619,53 +625,89 @@ export class TelegramListener {
     const chunks = splitMessage(body)
     let firstSend = true
     for (const chunk of chunks) {
-      const md = escapeChunkSuffixForMarkdownV2(formatMarkdownV2(chunk))
+      const aborted = await this.sendOneChunk(chatId, chunk, replyToMessageId, firstSend)
+      if (aborted) return
+      firstSend = false
+    }
+  }
+
+  /**
+   * Send a single chunk (MarkdownV2, with plain-text fallback on parse error).
+   * Returns true when delivery failed hard and the caller should stop sending
+   * further chunks (a delivery-failure notice has already been surfaced once).
+   */
+  private async sendOneChunk(
+    chatId: number,
+    chunk: string,
+    replyToMessageId: number,
+    firstSend: boolean,
+  ): Promise<boolean> {
+    const replyParams = firstSend
+      ? { message_id: replyToMessageId, allow_sending_without_reply: true }
+      : undefined
+    const md = escapeChunkSuffixForMarkdownV2(formatMarkdownV2(chunk))
+    try {
+      await sendWithRetry(() =>
+        this.bot.api.sendMessage(chatId, md, {
+          parse_mode: 'MarkdownV2',
+          reply_parameters: replyParams,
+        }),
+      )
+      return false
+    } catch (err) {
+      if (!isMarkdownParseError(err)) {
+        this.log(`send failed: ${(err as Error).message?.slice(0, 200)}`)
+        await this.sendDeliveryFailureNotice(chatId)
+        return true
+      }
+      // Plain-text fallback for this chunk
       try {
         await sendWithRetry(() =>
-          this.bot.api.sendMessage(chatId, md, {
-            parse_mode: 'MarkdownV2',
-            reply_parameters: firstSend
-              ? { message_id: replyToMessageId, allow_sending_without_reply: true }
-              : undefined,
+          this.bot.api.sendMessage(chatId, stripMarkdownV2(chunk), {
+            reply_parameters: replyParams,
           }),
         )
-      } catch (err) {
-        if (isMarkdownParseError(err)) {
-          // Plain-text fallback for this chunk
-          try {
-            await sendWithRetry(() =>
-              this.bot.api.sendMessage(chatId, stripMarkdownV2(chunk), {
-                reply_parameters: firstSend
-                  ? { message_id: replyToMessageId, allow_sending_without_reply: true }
-                  : undefined,
-              }),
-            )
-          } catch (fallbackErr) {
-            // Even plain-text failed; surface delivery-failure notice once.
-            this.log(`send fallback failed: ${(fallbackErr as Error).message?.slice(0, 200)}`)
-            try {
-              await this.bot.api.sendMessage(chatId, DELIVERY_FAILURE_NOTICE)
-            } catch {
-              /* best-effort */
-            }
-            return
-          }
-        } else {
-          this.log(`send failed: ${(err as Error).message?.slice(0, 200)}`)
-          try {
-            await this.bot.api.sendMessage(chatId, DELIVERY_FAILURE_NOTICE)
-          } catch {
-            /* best-effort */
-          }
-          return
-        }
+        return false
+      } catch (fallbackErr) {
+        // Even plain-text failed; surface delivery-failure notice once.
+        this.log(`send fallback failed: ${(fallbackErr as Error).message?.slice(0, 200)}`)
+        await this.sendDeliveryFailureNotice(chatId)
+        return true
       }
-      firstSend = false
+    }
+  }
+
+  /** Best-effort delivery-failure notice sent when a chunk can't be delivered. */
+  private async sendDeliveryFailureNotice(chatId: number): Promise<void> {
+    try {
+      await this.bot.api.sendMessage(chatId, DELIVERY_FAILURE_NOTICE)
+    } catch {
+      /* best-effort */
     }
   }
 
   private log(line: string): void {
     if (this.opts.debug) console.log(`[telegram] ${line}`)
+  }
+}
+
+/** Map a grammy inbound message onto the platform-neutral sanitizer input. */
+function toSanitizeInput(msg: NonNullable<Context['message']>): SanitizeInput {
+  return {
+    chatType: msg.chat.type,
+    chatId: msg.chat.id,
+    fromId: msg.from?.id ?? null,
+    fromIsBot: msg.from?.is_bot ?? false,
+    fromUsername: msg.from?.username ?? null,
+    fromFirstName: msg.from?.first_name ?? null,
+    fromLastName: msg.from?.last_name ?? null,
+    text: msg.text ?? msg.caption ?? null,
+    messageId: msg.message_id,
+    forwardedFrom:
+      (msg as { forward_from?: unknown; forward_origin?: unknown }).forward_from ??
+      (msg as { forward_origin?: unknown }).forward_origin ??
+      null,
+    mediaGroupId: msg.media_group_id ?? null,
   }
 }
 

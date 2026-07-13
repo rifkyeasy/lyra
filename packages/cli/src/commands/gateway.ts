@@ -27,6 +27,50 @@ export interface ParsedGatewayArgs {
 
 export type ParseResult = ParsedGatewayArgs | { error: string }
 
+type GatewayFlags = { agentId?: string; tail?: number; follow: boolean }
+
+/**
+ * Apply a single flag token at `argv[i]` into `acc`. Returns `next` (the last
+ * argv index this flag consumed, so the caller can advance past its value) or
+ * an `error`.
+ */
+function applyGatewayFlag(
+  acc: GatewayFlags,
+  argv: string[],
+  i: number,
+): { next: number } | { error: string } {
+  const a = argv[i]
+  if (a === '--agent') {
+    const v = argv[i + 1]
+    if (!v) return { error: '--agent requires a value' }
+    acc.agentId = v
+    return { next: i + 1 }
+  }
+  if (a === '--tail') {
+    const v = argv[i + 1]
+    if (!v) return { error: '--tail requires a value' }
+    const n = Number.parseInt(v, 10)
+    if (!Number.isFinite(n) || n < 0) return { error: '--tail must be a positive integer' }
+    acc.tail = n
+    return { next: i + 1 }
+  }
+  if (a === '--follow' || a === '-f') {
+    acc.follow = true
+    return { next: i }
+  }
+  return { error: `unknown flag: ${a}` }
+}
+
+function parseGatewayFlags(argv: string[]): GatewayFlags | { error: string } {
+  const acc: GatewayFlags = { follow: false }
+  for (let i = 1; i < argv.length; i++) {
+    const res = applyGatewayFlag(acc, argv, i)
+    if ('error' in res) return res
+    i = res.next
+  }
+  return acc
+}
+
 export function parseGatewayArgs(argv: string[]): ParseResult {
   const sub = argv[0]
   if (!sub) {
@@ -35,28 +79,9 @@ export function parseGatewayArgs(argv: string[]): ParseResult {
   if (!['run', 'start', 'stop', 'restart', 'status', 'logs'].includes(sub)) {
     return { error: `unknown gateway sub: ${sub}` }
   }
-  let agentId: string | undefined
-  let tail: number | undefined
-  let follow = false
-  for (let i = 1; i < argv.length; i++) {
-    const a = argv[i]
-    if (a === '--agent') {
-      const v = argv[++i]
-      if (!v) return { error: '--agent requires a value' }
-      agentId = v
-    } else if (a === '--tail') {
-      const v = argv[++i]
-      if (!v) return { error: '--tail requires a value' }
-      const n = Number.parseInt(v, 10)
-      if (!Number.isFinite(n) || n < 0) return { error: '--tail must be a positive integer' }
-      tail = n
-    } else if (a === '--follow' || a === '-f') {
-      follow = true
-    } else {
-      return { error: `unknown flag: ${a}` }
-    }
-  }
-  return { sub: sub as GatewaySub, agentId, tail, follow }
+  const flags = parseGatewayFlags(argv)
+  if ('error' in flags) return flags
+  return { sub: sub as GatewaySub, agentId: flags.agentId, tail: flags.tail, follow: flags.follow }
 }
 
 export async function runGateway(parsed: ParsedGatewayArgs): Promise<void> {

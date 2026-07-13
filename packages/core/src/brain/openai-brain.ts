@@ -10,7 +10,7 @@
  * The infer/compaction/tool-loop logic is intentionally identical to the
  * harness's prior brain; only the transport (auth + endpoint) differs.
  */
-import type { ToolSchema } from '../tools/types'
+import type { ToolCall, ToolSchema } from '../tools/types'
 import {
   type CompactionOpts,
   DEFAULT_COMPACTION_OPTS,
@@ -22,7 +22,7 @@ import {
 import { type FrozenPrefix, renderFrozenPrefix, renderUserContext } from './frozen-prefix'
 import type { HistoryPersist } from './history-persist'
 import { sanitizeDashes } from './sanitize'
-import type { Brain, BrainInferInput, BrainMessage, BrainTurn } from './types'
+import type { Brain, BrainInferInput, BrainMessage, BrainToolEvent, BrainTurn } from './types'
 
 /** Channel key used when none is specified — preserves single-history behavior. */
 export const DEFAULT_CHANNEL_KEY = 'default'
@@ -161,28 +161,24 @@ export class OpenAIBrain implements Brain {
     // turn may make. Without this the loop only ends when the model stops calling
     // tools — a prompt-injected or looping model could chain unbounded tool calls
     // (each a potential spend). Overridable via env for power users.
-    const readInt = (k: string, d: number): number => {
-      const n = Number(
-        (globalThis as { process?: { env?: Record<string, string> } }).process?.env?.[k],
-      )
-      return Number.isFinite(n) && n > 0 ? n : d
-    }
-    const maxRoundTrips = readInt('LYRA_MAX_ROUND_TRIPS', 32)
-    const maxToolCalls = readInt('LYRA_MAX_TOOL_CALLS', 64)
+    const maxRoundTrips = readPositiveIntEnv('LYRA_MAX_ROUND_TRIPS', 32)
+    const maxToolCalls = readPositiveIntEnv('LYRA_MAX_TOOL_CALLS', 64)
     let roundTrips = 0
     let toolCallsMade = 0
     while (true) {
       if (signal?.aborted) {
         throw new DOMException('aborted between round-trips', 'AbortError')
       }
-      if (roundTrips >= maxRoundTrips || toolCallsMade >= maxToolCalls) {
-        const hitRounds = roundTrips >= maxRoundTrips
-        messages.push({
-          role: 'assistant',
-          content:
-            turnResult?.content?.trim() ||
-            `Halting this turn: hit the ${hitRounds ? `${maxRoundTrips} round-trip` : `${maxToolCalls} tool-call`} safety cap without finishing. Stopping to prevent a runaway loop.`,
-        })
+      if (
+        this.enforceRunawayGuard(
+          roundTrips,
+          maxRoundTrips,
+          toolCallsMade,
+          maxToolCalls,
+          turnResult,
+          messages,
+        )
+      ) {
         break
       }
       roundTrips++
@@ -190,102 +186,179 @@ export class OpenAIBrain implements Brain {
       turnResult = resp
 
       if (!resp.toolCalls.length) {
-        const blockedName = detectBlockedToolError(resp.content ?? '')
-        if (blockedName && !recoveredFromSafetyBlock) {
+        if (this.handleTerminalResponse(resp, recoveredFromSafetyBlock, messages) === 'recovered') {
           recoveredFromSafetyBlock = true
-          const validNames = this.opts.tools
-            .map(t => (t as { name?: string }).name ?? '')
-            .filter(n => n.startsWith(`${blockedName}.`) || n.startsWith(`${blockedName}_`))
-            .slice(0, 12)
-          const hint =
-            validNames.length > 0
-              ? `Your last tool call used the bare name "${blockedName}", which is not a registered tool. Use the full name with subname (one of: ${validNames.join(', ')}). Retry now.`
-              : `Your last tool call used the bare name "${blockedName}", which is not a registered tool. Use the full namespaced name (e.g., something.action). Retry now.`
-          messages.push({ role: 'user', content: hint })
           continue
         }
-        messages.push({ role: 'assistant', content: resp.content ?? '' })
         break
       }
 
-      messages.push({
-        role: 'assistant',
-        content: resp.content ?? '',
-        toolCalls: resp.toolCalls,
-      })
       toolCallsMade += resp.toolCalls.length
-
-      for (const call of resp.toolCalls) {
-        if (signal?.aborted) {
-          throw new DOMException('aborted between tool calls', 'AbortError')
-        }
-        const isMalformed =
-          !call.name ||
-          (typeof call.args === 'string' &&
-            call.args !== '' &&
-            !looksLikeValidJsonString(call.args))
-        if (isMalformed) {
-          const toolLabel = call.name || MALFORMED_TOOL_LABEL
-          if (input.onToolEvent) {
-            try {
-              input.onToolEvent({
-                kind: 'start',
-                tool: toolLabel,
-                callId: call.id,
-                argsPreview: previewToolArgs(call.args),
-              })
-              input.onToolEvent({ kind: 'end', tool: toolLabel, callId: call.id, ok: false })
-            } catch {
-              /* swallow */
-            }
-          }
-          messages.push({
-            role: 'tool',
-            toolCallId: call.id,
-            content: JSON.stringify({
-              error:
-                'Tool call envelope was malformed (empty name or truncated arguments). Re-emit with a complete tool name and a parseable JSON args object.',
-            }),
-          })
-          continue
-        }
-        if (!this.opts.onToolCall) {
-          messages.push({
-            role: 'tool',
-            toolCallId: call.id,
-            content: JSON.stringify({ error: 'Tool handler not wired' }),
-          })
-          continue
-        }
-        if (input.onToolEvent) {
-          try {
-            input.onToolEvent({
-              kind: 'start',
-              tool: call.name,
-              callId: call.id,
-              argsPreview: previewToolArgs(call.args),
-            })
-          } catch {
-            /* observer errors must never block tool execution */
-          }
-        }
-        const toolMsg = await this.opts.onToolCall(call)
-        if (input.onToolEvent) {
-          try {
-            input.onToolEvent({
-              kind: 'end',
-              tool: call.name,
-              callId: call.id,
-              ok: inferToolOk(toolMsg.content ?? ''),
-            })
-          } catch {
-            /* swallow */
-          }
-        }
-        messages.push({ ...toolMsg, toolCallId: call.id })
-      }
+      await this.runToolCalls(resp, messages, input, signal)
     }
 
+    return this.finalizeTurn(channelKey, history, messages, userText, turnResult)
+  }
+
+  /**
+   * Runaway guard: when either the round-trip or tool-call cap is hit, push a
+   * halting assistant message and return true so `infer` breaks the loop.
+   */
+  private enforceRunawayGuard(
+    roundTrips: number,
+    maxRoundTrips: number,
+    toolCallsMade: number,
+    maxToolCalls: number,
+    turnResult: BrainTurn | null,
+    messages: BrainMessage[],
+  ): boolean {
+    if (roundTrips < maxRoundTrips && toolCallsMade < maxToolCalls) return false
+    const hitRounds = roundTrips >= maxRoundTrips
+    messages.push({
+      role: 'assistant',
+      content:
+        turnResult?.content?.trim() ||
+        `Halting this turn: hit the ${hitRounds ? `${maxRoundTrips} round-trip` : `${maxToolCalls} tool-call`} safety cap without finishing. Stopping to prevent a runaway loop.`,
+    })
+    return true
+  }
+
+  /**
+   * Handle a model response that carried no tool calls. Attempts one-shot
+   * recovery from a blocked-tool error; otherwise records the final assistant
+   * message. Returns `'recovered'` when the caller should retry the turn.
+   */
+  private handleTerminalResponse(
+    resp: BrainTurn,
+    alreadyRecovered: boolean,
+    messages: BrainMessage[],
+  ): 'recovered' | 'stop' {
+    if (this.tryRecoverBlockedTool(resp, alreadyRecovered, messages)) return 'recovered'
+    messages.push({ role: 'assistant', content: resp.content ?? '' })
+    return 'stop'
+  }
+
+  private tryRecoverBlockedTool(
+    resp: BrainTurn,
+    alreadyRecovered: boolean,
+    messages: BrainMessage[],
+  ): boolean {
+    const blockedName = detectBlockedToolError(resp.content ?? '')
+    if (!blockedName || alreadyRecovered) return false
+    messages.push({ role: 'user', content: this.buildBlockedToolHint(blockedName) })
+    return true
+  }
+
+  private buildBlockedToolHint(blockedName: string): string {
+    const validNames = this.opts.tools
+      .map(t => (t as { name?: string }).name ?? '')
+      .filter(n => n.startsWith(`${blockedName}.`) || n.startsWith(`${blockedName}_`))
+      .slice(0, 12)
+    return validNames.length > 0
+      ? `Your last tool call used the bare name "${blockedName}", which is not a registered tool. Use the full name with subname (one of: ${validNames.join(', ')}). Retry now.`
+      : `Your last tool call used the bare name "${blockedName}", which is not a registered tool. Use the full namespaced name (e.g., something.action). Retry now.`
+  }
+
+  /** Push the assistant tool-call message, then execute each tool call in order. */
+  private async runToolCalls(
+    resp: BrainTurn,
+    messages: BrainMessage[],
+    input: BrainInferInput,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    messages.push({
+      role: 'assistant',
+      content: resp.content ?? '',
+      toolCalls: resp.toolCalls,
+    })
+    for (const call of resp.toolCalls) {
+      await this.runToolCall(call, messages, input, signal)
+    }
+  }
+
+  private async runToolCall(
+    call: ToolCall,
+    messages: BrainMessage[],
+    input: BrainInferInput,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (signal?.aborted) {
+      throw new DOMException('aborted between tool calls', 'AbortError')
+    }
+    const isMalformed =
+      !call.name ||
+      (typeof call.args === 'string' && call.args !== '' && !looksLikeValidJsonString(call.args))
+    if (isMalformed) {
+      const toolLabel = call.name || MALFORMED_TOOL_LABEL
+      this.emitMalformedEvents(input, toolLabel, call)
+      messages.push({
+        role: 'tool',
+        toolCallId: call.id,
+        content: JSON.stringify({
+          error:
+            'Tool call envelope was malformed (empty name or truncated arguments). Re-emit with a complete tool name and a parseable JSON args object.',
+        }),
+      })
+      return
+    }
+    if (!this.opts.onToolCall) {
+      messages.push({
+        role: 'tool',
+        toolCallId: call.id,
+        content: JSON.stringify({ error: 'Tool handler not wired' }),
+      })
+      return
+    }
+    this.safeToolEvent(input, {
+      kind: 'start',
+      tool: call.name,
+      callId: call.id,
+      argsPreview: previewToolArgs(call.args),
+    })
+    const toolMsg = await this.opts.onToolCall(call)
+    this.safeToolEvent(input, {
+      kind: 'end',
+      tool: call.name,
+      callId: call.id,
+      ok: inferToolOk(toolMsg.content ?? ''),
+    })
+    messages.push({ ...toolMsg, toolCallId: call.id })
+  }
+
+  /** Emit start+end events for a malformed call in a single guarded try (matches legacy semantics). */
+  private emitMalformedEvents(input: BrainInferInput, toolLabel: string, call: ToolCall): void {
+    if (input.onToolEvent) {
+      try {
+        input.onToolEvent({
+          kind: 'start',
+          tool: toolLabel,
+          callId: call.id,
+          argsPreview: previewToolArgs(call.args),
+        })
+        input.onToolEvent({ kind: 'end', tool: toolLabel, callId: call.id, ok: false })
+      } catch {
+        /* swallow */
+      }
+    }
+  }
+
+  private safeToolEvent(input: BrainInferInput, event: BrainToolEvent): void {
+    if (!input.onToolEvent) return
+    try {
+      input.onToolEvent(event)
+    } catch {
+      /* observer errors must never block tool execution */
+    }
+  }
+
+  /** Persist the completed turn to history + optional store, then return the sanitized turn. */
+  private async finalizeTurn(
+    channelKey: string,
+    history: BrainMessage[],
+    messages: BrainMessage[],
+    userText: string,
+    turnResult: BrainTurn | null,
+  ): Promise<BrainTurn> {
     const finalAssistant = findLastAssistantContent(messages)
     const userMsg: BrainMessage = { role: 'user', content: userText }
     const assistantMsg: BrainMessage = { role: 'assistant', content: finalAssistant }
@@ -480,6 +553,13 @@ export class OpenAIBrain implements Brain {
       },
     }
   }
+}
+
+function readPositiveIntEnv(key: string, fallback: number): number {
+  const n = Number(
+    (globalThis as { process?: { env?: Record<string, string> } }).process?.env?.[key],
+  )
+  return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
 function normalizeUserContent(input: BrainInferInput): string {

@@ -84,17 +84,26 @@ async function collectLyraPluginSkills(pluginsRoot: string, out: SkillRef[]): Pr
   const plugins = await dirEntries(pluginsRoot)
   if (!plugins) return
   for (const plugin of plugins) {
-    if (!plugin.isDirectory()) continue
-    const skillsRoot = join(pluginsRoot, plugin.name, 'skills')
-    const skills = await dirEntries(skillsRoot)
-    if (!skills) continue
-    for (const skill of skills) {
-      if (!skill.isDirectory()) continue
-      const skillPath = join(skillsRoot, skill.name, 'SKILL.md')
-      if (!(await fileExists(skillPath))) continue
-      const ref = await loadSkill(skillPath, `${plugin.name}:${skill.name}`, 'lyra-plugin')
-      if (ref) out.push(ref)
+    if (plugin.isDirectory()) {
+      await collectLyraPluginSkillDir(pluginsRoot, plugin.name, out)
     }
+  }
+}
+
+async function collectLyraPluginSkillDir(
+  pluginsRoot: string,
+  pluginName: string,
+  out: SkillRef[],
+): Promise<void> {
+  const skillsRoot = join(pluginsRoot, pluginName, 'skills')
+  const skills = await dirEntries(skillsRoot)
+  if (!skills) return
+  for (const skill of skills) {
+    if (!skill.isDirectory()) continue
+    const skillPath = join(skillsRoot, skill.name, 'SKILL.md')
+    if (!(await fileExists(skillPath))) continue
+    const ref = await loadSkill(skillPath, `${pluginName}:${skill.name}`, 'lyra-plugin')
+    if (ref) out.push(ref)
   }
 }
 
@@ -102,30 +111,43 @@ async function collectClaudePluginCacheSkills(cacheRoot: string, out: SkillRef[]
   const marketplaces = await dirEntries(cacheRoot)
   if (!marketplaces) return
   for (const marketplace of marketplaces) {
-    if (!marketplace.isDirectory()) continue
-    const marketDir = join(cacheRoot, marketplace.name)
-    const plugins = await dirEntries(marketDir)
-    if (!plugins) continue
-    for (const plugin of plugins) {
-      if (!plugin.isDirectory()) continue
-      // Layer 1: <market>/<plugin>/<version>/skills/<skill>/SKILL.md
-      // Layer 2: <market>/<plugin>/skills/<skill>/SKILL.md (no version dir)
-      // Try the version layer first; fall back to direct.
-      const versions = await dirEntries(join(marketDir, plugin.name))
-      if (!versions) continue
-      for (const versionEntry of versions) {
-        if (!versionEntry.isDirectory()) continue
-        const versionDir = join(marketDir, plugin.name, versionEntry.name)
-        // Two valid shapes; both checked.
-        await collectClaudeSkillsFromVersion(
-          versionDir,
-          marketplace.name,
-          plugin.name,
-          versionEntry.name,
-          out,
-        )
-      }
+    if (marketplace.isDirectory()) {
+      await collectClaudeMarketplaceSkills(cacheRoot, marketplace.name, out)
     }
+  }
+}
+
+async function collectClaudeMarketplaceSkills(
+  cacheRoot: string,
+  marketplace: string,
+  out: SkillRef[],
+): Promise<void> {
+  const marketDir = join(cacheRoot, marketplace)
+  const plugins = await dirEntries(marketDir)
+  if (!plugins) return
+  for (const plugin of plugins) {
+    if (plugin.isDirectory()) {
+      await collectClaudePluginSkills(marketDir, marketplace, plugin.name, out)
+    }
+  }
+}
+
+async function collectClaudePluginSkills(
+  marketDir: string,
+  marketplace: string,
+  plugin: string,
+  out: SkillRef[],
+): Promise<void> {
+  // Layer 1: <market>/<plugin>/<version>/skills/<skill>/SKILL.md
+  // Layer 2: <market>/<plugin>/skills/<skill>/SKILL.md (no version dir)
+  // Try the version layer first; fall back to direct.
+  const versions = await dirEntries(join(marketDir, plugin))
+  if (!versions) return
+  for (const versionEntry of versions) {
+    if (!versionEntry.isDirectory()) continue
+    const versionDir = join(marketDir, plugin, versionEntry.name)
+    // Two valid shapes; both checked.
+    await collectClaudeSkillsFromVersion(versionDir, marketplace, plugin, versionEntry.name, out)
   }
 }
 
@@ -224,28 +246,41 @@ export function parseFrontmatter(raw: string): Partial<SkillFrontmatter> {
     const indented = rawLine.startsWith('  ') || rawLine.startsWith('\t')
     const trimmed = rawLine.trim()
     if (!indented) {
-      inMetadata = false
-      const m = trimmed.match(KEY_RE)
-      if (!m?.[1]) continue
-      const key = m[1]
-      const value = unquote(m[2] ?? '')
-      if (key === 'name') out.name = value
-      else if (key === 'description') out.description = value
-      else if (key === 'version') out.version = value
-      else if (key === 'license') out.license = value
-      else if (key === 'argument-hint' || key === 'argumentHint') out.argumentHint = value
-      else if (key === 'metadata') inMetadata = true
+      inMetadata = applyTopLevelLine(trimmed, out)
       continue
     }
     if (!inMetadata) continue
-    const m = trimmed.match(KEY_RE)
-    if (!m?.[1]) continue
-    const key = m[1]
-    const value = unquote(m[2] ?? '')
-    if (key === 'filePattern') out.filePattern = value
-    else if (key === 'bashPattern') out.bashPattern = value
+    applyMetadataLine(trimmed, out)
   }
   return out
+}
+
+/**
+ * Parse one top-level frontmatter line into `out`. Returns whether the line
+ * opened a `metadata:` block (i.e. the new `inMetadata` state).
+ */
+function applyTopLevelLine(trimmed: string, out: Partial<SkillFrontmatter>): boolean {
+  const m = trimmed.match(KEY_RE)
+  if (!m?.[1]) return false
+  const key = m[1]
+  const value = unquote(m[2] ?? '')
+  if (key === 'name') out.name = value
+  else if (key === 'description') out.description = value
+  else if (key === 'version') out.version = value
+  else if (key === 'license') out.license = value
+  else if (key === 'argument-hint' || key === 'argumentHint') out.argumentHint = value
+  else if (key === 'metadata') return true
+  return false
+}
+
+/** Parse one indented `metadata:` child line into `out`. */
+function applyMetadataLine(trimmed: string, out: Partial<SkillFrontmatter>): void {
+  const m = trimmed.match(KEY_RE)
+  if (!m?.[1]) return
+  const key = m[1]
+  const value = unquote(m[2] ?? '')
+  if (key === 'filePattern') out.filePattern = value
+  else if (key === 'bashPattern') out.bashPattern = value
 }
 
 function unquote(s: string): string {

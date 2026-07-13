@@ -89,33 +89,51 @@ async function loadFromCache(
     return
   }
   for (const market of marketplaces) {
-    if (!market.isDirectory()) continue
-    const marketDir = join(cacheRoot, market.name)
-    let plugins: Dirent[]
-    try {
-      plugins = (await readdir(marketDir, { withFileTypes: true })) as Dirent[]
-    } catch {
-      continue
-    }
-    for (const plugin of plugins) {
-      if (!plugin.isDirectory()) continue
-      const pluginDir = join(marketDir, plugin.name)
-      let versions: Dirent[]
-      try {
-        versions = (await readdir(pluginDir, { withFileTypes: true })) as Dirent[]
-      } catch {
-        continue
-      }
-      const versionDirs = versions.filter(v => v.isDirectory()).map(v => v.name)
-      // Pick the newest version dir (lexicographic, sufficient for semver).
-      versionDirs.sort()
-      const latest = versionDirs[versionDirs.length - 1]
-      if (!latest) continue
-      const versionDir = join(pluginDir, latest)
-      const mcpPath = join(versionDir, '.mcp.json')
-      await loadFromFile(mcpPath, versionDir, out, sources)
-    }
+    await loadCacheMarketplace(cacheRoot, market, out, sources)
   }
+}
+
+async function loadCacheMarketplace(
+  cacheRoot: string,
+  market: Dirent,
+  out: Map<string, McpServerConfig>,
+  sources: McpDiscoveryResult['sources'],
+): Promise<void> {
+  if (!market.isDirectory()) return
+  const marketDir = join(cacheRoot, market.name)
+  let plugins: Dirent[]
+  try {
+    plugins = (await readdir(marketDir, { withFileTypes: true })) as Dirent[]
+  } catch {
+    return
+  }
+  for (const plugin of plugins) {
+    await loadCachePlugin(marketDir, plugin, out, sources)
+  }
+}
+
+async function loadCachePlugin(
+  marketDir: string,
+  plugin: Dirent,
+  out: Map<string, McpServerConfig>,
+  sources: McpDiscoveryResult['sources'],
+): Promise<void> {
+  if (!plugin.isDirectory()) return
+  const pluginDir = join(marketDir, plugin.name)
+  let versions: Dirent[]
+  try {
+    versions = (await readdir(pluginDir, { withFileTypes: true })) as Dirent[]
+  } catch {
+    return
+  }
+  const versionDirs = versions.filter(v => v.isDirectory()).map(v => v.name)
+  // Pick the newest version dir (lexicographic, sufficient for semver).
+  versionDirs.sort()
+  const latest = versionDirs[versionDirs.length - 1]
+  if (!latest) return
+  const versionDir = join(pluginDir, latest)
+  const mcpPath = join(versionDir, '.mcp.json')
+  await loadFromFile(mcpPath, versionDir, out, sources)
 }
 
 function normalize(

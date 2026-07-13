@@ -30,10 +30,10 @@ import { LENDING_MARKET_ID, LENDING_MARKET_TYPE, SuilendClient } from '@suilend/
 import { initializeSuilend } from '@suilend/sdk/lib/initialize'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
+import { simulateAndExecute } from '../execute'
 import { checkMinimum } from '../minimums'
-import { evaluatePolicy, suiToMist } from '../policy'
+import { policyBlock, suiToMist } from '../policy'
 import { PROTOCOL_IDS } from '../protocol-ids'
-import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
 import { fundSui } from '../vault-fund'
 
@@ -132,6 +132,18 @@ const BorrowSchema = z.object({
 })
 type BorrowArgs = z.infer<typeof BorrowSchema>
 
+/** Resolve the borrow/repay coin (default USDC) and parse the amount into its
+ *  base units, or return a validation error. */
+function resolveBorrowAmount(
+  args: BorrowArgs,
+): { coin: CoinInfo; amountBase: bigint } | { error: string } {
+  const coin = BORROW_COINS[args.coin ?? 'usdc']
+  const amountBase = toBaseUnits(args.amount, coin.decimals)
+  if (amountBase === undefined || amountBase <= 0n)
+    return { error: `invalid amount "${args.amount}"` }
+  return { coin, amountBase }
+}
+
 export function makeSuilendSupply(ctx: OnchainRuntimeContext): ToolDef<AmountArgs> {
   return {
     name: 'suilend.supply',
@@ -147,14 +159,13 @@ export function makeSuilendSupply(ctx: OnchainRuntimeContext): ToolDef<AmountArg
         return { ok: false, error: `invalid amount "${args.amount}"` }
       const tooSmall = checkMinimum('supply', amountMist)
       if (tooSmall) return { ok: false, error: tooSmall }
-      if (ctx.policy) {
-        const verdict = evaluatePolicy(
-          { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'suilend' },
-          ctx.policy,
-        )
-        if (!verdict.allowed)
-          return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
-      }
+      const blocked = policyBlock(ctx.policy, {
+        kind: 'transfer',
+        coinType: SUI_TYPE,
+        amountMist,
+        protocol: 'suilend',
+      })
+      if (blocked) return { ok: false, error: blocked }
       try {
         const suilend = await newSuilend(ctx)
         const existing = await findObligation(ctx)
@@ -176,19 +187,8 @@ export function makeSuilendSupply(ctx: OnchainRuntimeContext): ToolDef<AmountArg
           suilend.deposit(coin as never, SUI_TYPE, cap, tx as never)
           tx.transferObjects([cap as never], ctx.agentAddress)
         }
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true },
-        })
-        if (res.effects?.status?.status !== 'success')
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        await ctx.client.waitForTransaction({ digest: res.digest })
+        const exec = await simulateAndExecute(ctx, tx)
+        if (!exec.ok) return exec
         return {
           ok: true,
           data: {
@@ -196,7 +196,7 @@ export function makeSuilendSupply(ctx: OnchainRuntimeContext): ToolDef<AmountArg
             action: 'supply',
             amountSui: args.amount,
             newObligation: !existing,
-            digest: res.digest,
+            digest: exec.value.digest,
             policyEnforced: ctx.policy != null,
           },
         }
@@ -244,26 +244,15 @@ export function makeSuilendWithdraw(ctx: OnchainRuntimeContext): ToolDef<AmountA
           ctokens.toString(),
           tx as never,
         )
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true },
-        })
-        if (res.effects?.status?.status !== 'success')
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        await ctx.client.waitForTransaction({ digest: res.digest })
+        const exec = await simulateAndExecute(ctx, tx)
+        if (!exec.ok) return exec
         return {
           ok: true,
           data: {
             protocol: 'suilend',
             action: 'withdraw',
             amountSui: args.amount,
-            digest: res.digest,
+            digest: exec.value.digest,
           },
         }
       } catch (e) {
@@ -285,20 +274,18 @@ export function makeSuilendBorrow(ctx: OnchainRuntimeContext): ToolDef<BorrowArg
     handler: async args => {
       const err = ensureMainnet(ctx)
       if (err) return { ok: false, error: err }
-      const coin = BORROW_COINS[args.coin ?? 'usdc']
-      const amountBase = toBaseUnits(args.amount, coin.decimals)
-      if (amountBase === undefined || amountBase <= 0n)
-        return { ok: false, error: `invalid amount "${args.amount}"` }
+      const parsed = resolveBorrowAmount(args)
+      if ('error' in parsed) return { ok: false, error: parsed.error }
+      const { coin, amountBase } = parsed
       if (amountBase < coin.minBase)
         return { ok: false, error: `amount too small: below the minimum ${coin.label} borrow` }
-      if (ctx.policy) {
-        const verdict = evaluatePolicy(
-          { kind: 'transfer', coinType: coin.type, amountMist: amountBase, protocol: 'borrow' },
-          ctx.policy,
-        )
-        if (!verdict.allowed)
-          return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
-      }
+      const blocked = policyBlock(ctx.policy, {
+        kind: 'transfer',
+        coinType: coin.type,
+        amountMist: amountBase,
+        protocol: 'borrow',
+      })
+      if (blocked) return { ok: false, error: blocked }
       try {
         const suilend = await newSuilend(ctx)
         const obligation = await findObligation(ctx)
@@ -315,19 +302,8 @@ export function makeSuilendBorrow(ctx: OnchainRuntimeContext): ToolDef<BorrowArg
           amountBase.toString(),
           tx as never,
         )
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true },
-        })
-        if (res.effects?.status?.status !== 'success')
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        await ctx.client.waitForTransaction({ digest: res.digest })
+        const exec = await simulateAndExecute(ctx, tx)
+        if (!exec.ok) return exec
         return {
           ok: true,
           data: {
@@ -335,7 +311,7 @@ export function makeSuilendBorrow(ctx: OnchainRuntimeContext): ToolDef<BorrowArg
             action: 'borrow',
             amount: args.amount,
             coin: coin.label,
-            digest: res.digest,
+            digest: exec.value.digest,
             policyEnforced: ctx.policy != null,
           },
         }
@@ -358,18 +334,16 @@ export function makeSuilendRepay(ctx: OnchainRuntimeContext): ToolDef<BorrowArgs
     handler: async args => {
       const err = ensureMainnet(ctx)
       if (err) return { ok: false, error: err }
-      const coin = BORROW_COINS[args.coin ?? 'usdc']
-      const amountBase = toBaseUnits(args.amount, coin.decimals)
-      if (amountBase === undefined || amountBase <= 0n)
-        return { ok: false, error: `invalid amount "${args.amount}"` }
-      if (ctx.policy) {
-        const verdict = evaluatePolicy(
-          { kind: 'transfer', coinType: coin.type, amountMist: amountBase, protocol: 'suilend' },
-          ctx.policy,
-        )
-        if (!verdict.allowed)
-          return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
-      }
+      const parsed = resolveBorrowAmount(args)
+      if ('error' in parsed) return { ok: false, error: parsed.error }
+      const { coin, amountBase } = parsed
+      const blocked = policyBlock(ctx.policy, {
+        kind: 'transfer',
+        coinType: coin.type,
+        amountMist: amountBase,
+        protocol: 'suilend',
+      })
+      if (blocked) return { ok: false, error: blocked }
       try {
         const suilend = await newSuilend(ctx)
         const obligation = await findObligation(ctx)
@@ -383,19 +357,8 @@ export function makeSuilendRepay(ctx: OnchainRuntimeContext): ToolDef<BorrowArgs
           amountBase.toString(),
           tx as never,
         )
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true },
-        })
-        if (res.effects?.status?.status !== 'success')
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        await ctx.client.waitForTransaction({ digest: res.digest })
+        const exec = await simulateAndExecute(ctx, tx)
+        if (!exec.ok) return exec
         return {
           ok: true,
           data: {
@@ -403,7 +366,7 @@ export function makeSuilendRepay(ctx: OnchainRuntimeContext): ToolDef<BorrowArgs
             action: 'repay',
             amount: args.amount,
             coin: coin.label,
-            digest: res.digest,
+            digest: exec.value.digest,
           },
         }
       } catch (e) {

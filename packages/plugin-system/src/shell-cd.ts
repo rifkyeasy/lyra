@@ -43,31 +43,43 @@ export function makeShellCd(deps: ShellCdDeps): ToolDef<z.infer<typeof CdSchema>
       if (!guardResult.allowed) {
         return { ok: false, error: guardResult.reason ?? 'path denied' }
       }
-      // Canonicalise through realpath so the stored cwd matches what `pwd`
-      // would print inside subsequent shell.run calls (macOS resolves
-      // /var/folders → /private/var/folders, etc.).
-      let canonical: string
-      try {
-        canonical = await realpath(abs)
-      } catch (e) {
-        return { ok: false, error: `stat failed: ${(e as Error).message}` }
-      }
-      // Re-check after canonicalisation — covers the (rare) case where the
-      // raw form passes but the resolved target lands inside a denied tree.
-      const guardCanonical = guard.check(canonical)
-      if (!guardCanonical.allowed) {
-        return { ok: false, error: guardCanonical.reason ?? 'path denied' }
-      }
-      try {
-        const info = await stat(canonical)
-        if (!info.isDirectory()) {
-          return { ok: false, error: `not a directory: ${canonical}` }
-        }
-      } catch (e) {
-        return { ok: false, error: `stat failed: ${(e as Error).message}` }
-      }
-      cwdState.set(canonical)
-      return { ok: true, data: { cwd: canonical } }
+      const canonical = await canonicalizeDir(abs, guard)
+      if (!canonical.ok) return { ok: false, error: canonical.error }
+      cwdState.set(canonical.cwd)
+      return { ok: true, data: { cwd: canonical.cwd } }
     },
   }
+}
+
+/**
+ * Canonicalise `abs` through realpath so the stored cwd matches what `pwd`
+ * would print inside subsequent shell.run calls (macOS resolves /var/folders →
+ * /private/var/folders, etc.), then re-check the deny rules and confirm the
+ * target is a directory. The re-check after canonicalisation covers the (rare)
+ * case where the raw form passes but the resolved target lands inside a denied
+ * tree.
+ */
+async function canonicalizeDir(
+  abs: string,
+  guard: PathGuard,
+): Promise<{ ok: true; cwd: string } | { ok: false; error: string }> {
+  let canonical: string
+  try {
+    canonical = await realpath(abs)
+  } catch (e) {
+    return { ok: false, error: `stat failed: ${(e as Error).message}` }
+  }
+  const guardCanonical = guard.check(canonical)
+  if (!guardCanonical.allowed) {
+    return { ok: false, error: guardCanonical.reason ?? 'path denied' }
+  }
+  try {
+    const info = await stat(canonical)
+    if (!info.isDirectory()) {
+      return { ok: false, error: `not a directory: ${canonical}` }
+    }
+  } catch (e) {
+    return { ok: false, error: `stat failed: ${(e as Error).message}` }
+  }
+  return { ok: true, cwd: canonical }
 }

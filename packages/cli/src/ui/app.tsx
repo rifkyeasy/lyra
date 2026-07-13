@@ -1,5 +1,5 @@
 import { useKeyboard, usePaste, useTerminalDimensions } from '@opentui/solid'
-import { type SlashCommand, suggestForPrefix } from 'lyra-core'
+import { type PermissionDecision, type SlashCommand, suggestForPrefix } from 'lyra-core'
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
 import { summarizeApprovalSubject } from './approval-summary'
 import { MarkdownSegments } from './markdown'
@@ -83,6 +83,27 @@ function formatElapsed(startedAt: number | null | undefined): string {
   const m = Math.floor(sec / 60)
   const s = sec % 60
   return `${m}m${s.toString().padStart(2, '0')}s`
+}
+
+type KeyEvent = Parameters<Parameters<typeof useKeyboard>[0]>[0]
+
+/** Map an approval-modal keypress to a decision, or null if it's not a choice key. */
+function approvalDecisionFor(evt: KeyEvent): PermissionDecision | null {
+  const ch = evt.sequence?.toLowerCase()
+  if (ch === 'y' || ch === '1') return 'allow-once'
+  if (ch === 's' || ch === '2') return 'allow-session'
+  if (ch === 'n' || ch === 'd' || ch === '3' || evt.name === 'escape') return 'deny'
+  return null
+}
+
+/** Keep only printable characters (drop control bytes incl. CR/LF/TAB). */
+function filterPrintable(seq: string): string {
+  let text = ''
+  for (const ch of seq) {
+    const c = ch.charCodeAt(0)
+    if (c >= 0x20 && c !== 0x7f) text += ch
+  }
+  return text
 }
 
 function UserRow(props: { text: string }) {
@@ -358,150 +379,165 @@ export function ChatApp(props: AppProps) {
     if (props.state.slashIndex() >= merged.length) props.state.setSlashIndex(0)
   }
 
-  useKeyboard(evt => {
+  function appendInput(text: string): void {
+    props.state.setInput(prev => {
+      const next = prev + text
+      refreshSlashMatches(next)
+      return next
+    })
+  }
+
+  function handleCtrlC(evt: KeyEvent): boolean {
     if (evt.ctrl && evt.name === 'c') {
       evt.preventDefault()
       props.onExit()
-      return
+      return true
     }
-    // Approval modal mode: swallow keys, route y/s/n to decision.
+    return false
+  }
+
+  // Approval modal mode: swallow all keys, route y/s/n to decision.
+  function handleApprovalMode(evt: KeyEvent): boolean {
     const pending = props.state.pendingApproval()
-    if (pending) {
-      if (evt.name === 'return') return
-      if (evt.sequence) {
-        const ch = evt.sequence.toLowerCase()
-        if (ch === 'y' || ch === '1') {
-          pending.resolve('allow-once')
-          props.state.setPendingApproval(null)
-          return
-        }
-        if (ch === 's' || ch === '2') {
-          pending.resolve('allow-session')
-          props.state.setPendingApproval(null)
-          return
-        }
-        if (ch === 'n' || ch === 'd' || ch === '3' || evt.name === 'escape') {
-          pending.resolve('deny')
-          props.state.setPendingApproval(null)
-          return
-        }
-      }
-      return
+    if (!pending) return false
+    if (evt.name === 'return') return true
+    const decision = approvalDecisionFor(evt)
+    if (decision) {
+      pending.resolve(decision)
+      props.state.setPendingApproval(null)
     }
-    // stickyScroll auto-snaps to bottom on new rows; ctrl+u/d (vim-style
-    // half-page) and opt+u/d let the operator scroll back through past
-    // responses mid-conversation. Ctrl works in every terminal; Opt only
-    // works when the terminal is configured to send Opt as Meta/Alt
-    // (Ghostty needs `macos-option-as-alt = true`, iTerm2 "Option as Esc+",
-    // Terminal.app "Use Option as Meta key").
+    return true
+  }
+
+  // stickyScroll auto-snaps to bottom on new rows; ctrl+u/d (vim-style
+  // half-page) and opt+u/d let the operator scroll back through past
+  // responses mid-conversation. Ctrl works in every terminal; Opt only
+  // works when the terminal is configured to send Opt as Meta/Alt
+  // (Ghostty needs `macos-option-as-alt = true`, iTerm2 "Option as Esc+",
+  // Terminal.app "Use Option as Meta key").
+  function handleScroll(evt: KeyEvent): boolean {
     if ((evt.ctrl || evt.option) && (evt.name === 'u' || evt.name === 'd')) {
       scrollboxRef?.scrollBy(evt.name === 'u' ? -SCROLL_STEP : SCROLL_STEP)
-      return
+      return true
     }
-    // Esc dismisses the slash menu first; only on a second press does it
-    // abort the current brain turn.
-    if (evt.name === 'escape') {
-      if (props.state.slashMatches().length > 0) {
-        props.state.setSlashMatches([])
-        props.state.setSlashIndex(0)
-        return
-      }
-      const abort = props.state.activeAbort()
-      if (abort && !abort.signal.aborted) {
-        abort.abort()
-      }
-      return
-    }
-    // Slash menu: ↑/↓ cycle selection, Tab completes, Enter submits the
-    // selection (when the menu is open). Only fires when matches are visible.
+    return false
+  }
+
+  // Esc dismisses the slash menu first; only on a second press does it
+  // abort the current brain turn.
+  function handleEscape(evt: KeyEvent): boolean {
+    if (evt.name !== 'escape') return false
     if (props.state.slashMatches().length > 0) {
-      if (evt.name === 'up') {
-        const len = props.state.slashMatches().length
-        props.state.setSlashIndex(i => (i - 1 + len) % len)
-        return
-      }
-      if (evt.name === 'down') {
-        const len = props.state.slashMatches().length
-        props.state.setSlashIndex(i => (i + 1) % len)
-        return
-      }
-      if (evt.name === 'tab') {
-        const cmd = props.state.slashMatches()[props.state.slashIndex()]
-        if (cmd) {
-          const next = `/${cmd.name}${cmd.argHint ? ' ' : ''}`
-          props.state.setInput(next)
-          refreshSlashMatches(next)
-        }
-        return
-      }
-    }
-    if (evt.name === 'return') {
-      const text = props.state.input().trim()
-      if (!text) return
-      // Mid-turn submit guard: refuse to fire a second brain.infer while one
-      // is in flight (concurrent infers clobber history). Tell the operator
-      // how to interrupt the current one.
-      if (props.state.status() === 'thinking') {
-        props.state.pushRow({
-          role: 'system',
-          text: 'turn in progress. press esc to interrupt before sending the next message.',
-        })
-        return
-      }
-      // If the slash menu is open and a single match exists with no args
-      // typed yet, complete to that command name before submitting. Otherwise
-      // submit verbatim — operator may have typed `/perms strict` in full.
-      let toSubmit = text
-      if (props.state.slashMatches().length === 1 && /^\/\S+$/.test(text)) {
-        const sole = props.state.slashMatches()[0]!
-        toSubmit = `/${sole.name}`
-      }
-      props.state.pushRow({ role: 'user', text: toSubmit })
-      props.state.setInput('')
       props.state.setSlashMatches([])
       props.state.setSlashIndex(0)
-      props.state.setStatus('thinking')
-      props.onSubmit(toSubmit)
-      return
+      return true
     }
-    if (evt.name === 'backspace' || evt.name === 'delete') {
-      props.state.setInput(prev => {
-        const next = prev.slice(0, -1)
+    const abort = props.state.activeAbort()
+    if (abort && !abort.signal.aborted) {
+      abort.abort()
+    }
+    return true
+  }
+
+  // Slash menu: ↑/↓ cycle selection, Tab completes. Only fires when matches
+  // are visible; other keys fall through to submit/edit handling.
+  function handleSlashNav(evt: KeyEvent): boolean {
+    if (props.state.slashMatches().length === 0) return false
+    if (evt.name === 'up') {
+      const len = props.state.slashMatches().length
+      props.state.setSlashIndex(i => (i - 1 + len) % len)
+      return true
+    }
+    if (evt.name === 'down') {
+      const len = props.state.slashMatches().length
+      props.state.setSlashIndex(i => (i + 1) % len)
+      return true
+    }
+    if (evt.name === 'tab') {
+      const cmd = props.state.slashMatches()[props.state.slashIndex()]
+      if (cmd) {
+        const next = `/${cmd.name}${cmd.argHint ? ' ' : ''}`
+        props.state.setInput(next)
         refreshSlashMatches(next)
-        return next
-      })
-      return
-    }
-    // Typed characters AND pasted text. A paste arrives as a single multi-char
-    // event (sometimes wrapped in a bracketed-paste sequence); the old
-    // `length === 1` guard dropped it, so paste did nothing. Accept printable
-    // text of any length: extract the bracketed-paste payload if present, then
-    // strip control bytes (ESC sequences from arrow/fn keys, CR/LF/TAB) so only
-    // real text lands in the input.
-    if (evt.sequence && !evt.ctrl && !evt.meta && !evt.option) {
-      const ESC = String.fromCharCode(27)
-      let seq = evt.sequence
-      if (seq.includes(ESC)) {
-        // Bracketed paste: ESC[200~ <text> ESC[201~. Anything else with an ESC
-        // is an arrow/fn escape sequence — not text — so ignore it.
-        const start = seq.indexOf(`${ESC}[200~`)
-        const end = seq.indexOf(`${ESC}[201~`)
-        if (start === -1 || end === -1 || end <= start) return
-        seq = seq.slice(start + 6, end)
       }
-      // Keep only printable characters (drop control bytes incl. CR/LF/TAB).
-      let text = ''
-      for (const ch of seq) {
-        const c = ch.charCodeAt(0)
-        if (c >= 0x20 && c !== 0x7f) text += ch
-      }
-      if (!text) return
-      props.state.setInput(prev => {
-        const next = prev + text
-        refreshSlashMatches(next)
-        return next
-      })
+      return true
     }
+    return false
+  }
+
+  function handleReturn(evt: KeyEvent): boolean {
+    if (evt.name !== 'return') return false
+    const text = props.state.input().trim()
+    if (!text) return true
+    // Mid-turn submit guard: refuse to fire a second brain.infer while one
+    // is in flight (concurrent infers clobber history). Tell the operator
+    // how to interrupt the current one.
+    if (props.state.status() === 'thinking') {
+      props.state.pushRow({
+        role: 'system',
+        text: 'turn in progress. press esc to interrupt before sending the next message.',
+      })
+      return true
+    }
+    // If the slash menu is open and a single match exists with no args
+    // typed yet, complete to that command name before submitting. Otherwise
+    // submit verbatim — operator may have typed `/perms strict` in full.
+    let toSubmit = text
+    if (props.state.slashMatches().length === 1 && /^\/\S+$/.test(text)) {
+      const sole = props.state.slashMatches()[0]!
+      toSubmit = `/${sole.name}`
+    }
+    props.state.pushRow({ role: 'user', text: toSubmit })
+    props.state.setInput('')
+    props.state.setSlashMatches([])
+    props.state.setSlashIndex(0)
+    props.state.setStatus('thinking')
+    props.onSubmit(toSubmit)
+    return true
+  }
+
+  function handleBackspace(evt: KeyEvent): boolean {
+    if (evt.name !== 'backspace' && evt.name !== 'delete') return false
+    props.state.setInput(prev => {
+      const next = prev.slice(0, -1)
+      refreshSlashMatches(next)
+      return next
+    })
+    return true
+  }
+
+  // Typed characters AND pasted text. A paste arrives as a single multi-char
+  // event (sometimes wrapped in a bracketed-paste sequence); the old
+  // `length === 1` guard dropped it, so paste did nothing. Accept printable
+  // text of any length: extract the bracketed-paste payload if present, then
+  // strip control bytes (ESC sequences from arrow/fn keys, CR/LF/TAB) so only
+  // real text lands in the input.
+  function handleTextInput(evt: KeyEvent): void {
+    if (!(evt.sequence && !evt.ctrl && !evt.meta && !evt.option)) return
+    const ESC = String.fromCharCode(27)
+    let seq = evt.sequence
+    if (seq.includes(ESC)) {
+      // Bracketed paste: ESC[200~ <text> ESC[201~. Anything else with an ESC
+      // is an arrow/fn escape sequence — not text — so ignore it.
+      const start = seq.indexOf(`${ESC}[200~`)
+      const end = seq.indexOf(`${ESC}[201~`)
+      if (start === -1 || end === -1 || end <= start) return
+      seq = seq.slice(start + 6, end)
+    }
+    const text = filterPrintable(seq)
+    if (!text) return
+    appendInput(text)
+  }
+
+  useKeyboard(evt => {
+    if (handleCtrlC(evt)) return
+    if (handleApprovalMode(evt)) return
+    if (handleScroll(evt)) return
+    if (handleEscape(evt)) return
+    if (handleSlashNav(evt)) return
+    if (handleReturn(evt)) return
+    if (handleBackspace(evt)) return
+    handleTextInput(evt)
   })
 
   // Clipboard paste (⌘/Ctrl+V) arrives as a bracketed-paste event on its own
@@ -515,17 +551,9 @@ export function ChatApp(props: AppProps) {
     } catch {
       return
     }
-    let text = ''
-    for (const ch of pasted) {
-      const c = ch.charCodeAt(0)
-      if (c >= 0x20 && c !== 0x7f) text += ch
-    }
+    const text = filterPrintable(pasted)
     if (!text) return
-    props.state.setInput(prev => {
-      const next = prev + text
-      refreshSlashMatches(next)
-      return next
-    })
+    appendInput(text)
   })
 
   return (

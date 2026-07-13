@@ -26,6 +26,30 @@ export const MD_COLORS = {
   tableHeader: '#fbbf24',
 }
 
+/** A matched inline token: the styled segment plus the index to resume at. */
+type InlineMatch = { seg: MdSegment; next: number }
+
+function matchCode(line: string, i: number): InlineMatch | null {
+  if (line[i] !== '`') return null
+  const end = line.indexOf('`', i + 1)
+  if (end <= i) return null
+  return { seg: { text: line.slice(i + 1, end), fg: MD_COLORS.code }, next: end + 1 }
+}
+
+function matchBold(line: string, i: number, baseFg: string): InlineMatch | null {
+  if (!(line[i] === '*' && line[i + 1] === '*')) return null
+  const end = line.indexOf('**', i + 2)
+  if (end <= i + 2) return null
+  return { seg: { text: line.slice(i + 2, end), fg: baseFg, bold: true }, next: end + 2 }
+}
+
+function matchItalic(line: string, i: number, baseFg: string): InlineMatch | null {
+  if (!(line[i] === '*' && line[i + 1] !== '*' && line[i + 1] !== ' ')) return null
+  const end = line.indexOf('*', i + 1)
+  if (!(end > i + 1 && line[end - 1] !== ' ' && line[end + 1] !== '*')) return null
+  return { seg: { text: line.slice(i + 1, end), fg: baseFg, italic: true }, next: end + 1 }
+}
+
 /**
  * Parse a single line's inline markup (`**bold**`, `*italic*`, `` `code` ``)
  * into a flat list of segments. Caller handles the line-level structure.
@@ -41,32 +65,12 @@ function parseInline(line: string, baseFg: string = MD_COLORS.text): MdSegment[]
     }
   }
   while (i < line.length) {
-    if (line[i] === '`') {
-      const end = line.indexOf('`', i + 1)
-      if (end > i) {
-        flushPlain()
-        out.push({ text: line.slice(i + 1, end), fg: MD_COLORS.code })
-        i = end + 1
-        continue
-      }
-    }
-    if (line[i] === '*' && line[i + 1] === '*') {
-      const end = line.indexOf('**', i + 2)
-      if (end > i + 2) {
-        flushPlain()
-        out.push({ text: line.slice(i + 2, end), fg: baseFg, bold: true })
-        i = end + 2
-        continue
-      }
-    }
-    if (line[i] === '*' && line[i + 1] !== '*' && line[i + 1] !== ' ') {
-      const end = line.indexOf('*', i + 1)
-      if (end > i + 1 && line[end - 1] !== ' ' && line[end + 1] !== '*') {
-        flushPlain()
-        out.push({ text: line.slice(i + 1, end), fg: baseFg, italic: true })
-        i = end + 1
-        continue
-      }
+    const match = matchCode(line, i) ?? matchBold(line, i, baseFg) ?? matchItalic(line, i, baseFg)
+    if (match) {
+      flushPlain()
+      out.push(match.seg)
+      i = match.next
+      continue
     }
     plain += line[i]
     i++
@@ -144,6 +148,58 @@ function renderTable(rows: string[][], out: MdSegment[], pushNewline: () => void
   }
 }
 
+function pushHeading(out: MdSegment[], text: string, pushNewline: () => void): void {
+  pushNewline()
+  const inner = parseInline(text, MD_COLORS.heading)
+  for (const seg of inner) {
+    out.push({ ...seg, fg: seg.fg ?? MD_COLORS.heading, bold: true })
+  }
+}
+
+/**
+ * Render one non-fenced block line (heading / table / bullet / numbered /
+ * plain) into `out`, returning the index AFTER the consumed source line(s).
+ * Tables span multiple source lines, so this returns the block's end index.
+ */
+function renderBlockLine(
+  lines: string[],
+  i: number,
+  out: MdSegment[],
+  pushNewline: () => void,
+): number {
+  const rawLine = lines[i]!
+  const headingMatch = rawLine.match(/^(#{1,6})\s+(.*)$/)
+  if (headingMatch) {
+    pushHeading(out, headingMatch[2]!, pushNewline)
+    return i + 1
+  }
+  const table = detectTable(lines, i)
+  if (table) {
+    renderTable(table.rows, out, pushNewline)
+    return table.end
+  }
+  const bulletMatch = rawLine.match(/^(\s*)([-*])\s+(.*)$/)
+  if (bulletMatch) {
+    pushNewline()
+    out.push({ text: `${bulletMatch[1]}• `, fg: MD_COLORS.bullet })
+    out.push(...parseInline(bulletMatch[3]!))
+    return i + 1
+  }
+  const numberedMatch = rawLine.match(/^(\s*)(\d+)\.\s+(.*)$/)
+  if (numberedMatch) {
+    pushNewline()
+    out.push({
+      text: `${numberedMatch[1]}${numberedMatch[2]}. `,
+      fg: MD_COLORS.bullet,
+    })
+    out.push(...parseInline(numberedMatch[3]!))
+    return i + 1
+  }
+  pushNewline()
+  out.push(...parseInline(rawLine))
+  return i + 1
+}
+
 /**
  * Parse the full text into a flat list of segments separated by newlines.
  * Block-level structure is encoded as styled prefixes in the segments
@@ -176,44 +232,7 @@ export function parseMarkdown(text: string): MdSegment[] {
       i++
       continue
     }
-    const headingMatch = rawLine.match(/^(#{1,6})\s+(.*)$/)
-    if (headingMatch) {
-      pushNewline()
-      const inner = parseInline(headingMatch[2]!, MD_COLORS.heading)
-      for (const seg of inner) {
-        out.push({ ...seg, fg: seg.fg ?? MD_COLORS.heading, bold: true })
-      }
-      i++
-      continue
-    }
-    const table = detectTable(lines, i)
-    if (table) {
-      renderTable(table.rows, out, pushNewline)
-      i = table.end
-      continue
-    }
-    const bulletMatch = rawLine.match(/^(\s*)([-*])\s+(.*)$/)
-    if (bulletMatch) {
-      pushNewline()
-      out.push({ text: `${bulletMatch[1]}• `, fg: MD_COLORS.bullet })
-      out.push(...parseInline(bulletMatch[3]!))
-      i++
-      continue
-    }
-    const numberedMatch = rawLine.match(/^(\s*)(\d+)\.\s+(.*)$/)
-    if (numberedMatch) {
-      pushNewline()
-      out.push({
-        text: `${numberedMatch[1]}${numberedMatch[2]}. `,
-        fg: MD_COLORS.bullet,
-      })
-      out.push(...parseInline(numberedMatch[3]!))
-      i++
-      continue
-    }
-    pushNewline()
-    out.push(...parseInline(rawLine))
-    i++
+    i = renderBlockLine(lines, i, out, pushNewline)
   }
   return out
 }

@@ -238,9 +238,26 @@ export class DockerBackend implements SandboxBackend {
   }
 
   private async startContainer(): Promise<string> {
-    // Verify the runtime daemon/machine is reachable. Fast-fail with a clear
-    // error if not. Podman on macOS needs `podman machine start` once before
-    // the API responds.
+    await this.assertRuntimeReachable()
+    const runArgs = this.buildRunArgs()
+    const { stdout } = await exec(this.runtime.path, runArgs, {
+      timeout: this.startTimeoutMs,
+    })
+    const containerId = stdout.toString().trim()
+    if (!containerId || containerId.length < 12) {
+      throw new Error(
+        `${this.runtime.runtime} run returned unexpected output: "${containerId.slice(0, 200)}"`,
+      )
+    }
+    return containerId
+  }
+
+  /**
+   * Verify the runtime daemon/machine is reachable. Fast-fail with a clear
+   * error if not. Podman on macOS needs `podman machine start` once before
+   * the API responds.
+   */
+  private async assertRuntimeReachable(): Promise<void> {
     try {
       await exec(this.runtime.path, ['version', '--format', '{{.Server.Version}}'], {
         timeout: 5_000,
@@ -254,7 +271,10 @@ export class DockerBackend implements SandboxBackend {
         `${this.runtime.runtime} daemon unreachable (${(err as Error).message}). ${hint} Or set sandbox.mode='os' / 'none'.`,
       )
     }
+  }
 
+  /** Assemble the `run` arg vector: hardening flags, resource caps, mounts, idle loop. */
+  private buildRunArgs(): string[] {
     const runArgs: string[] = ['run', '-d', '--rm', '--label', 'lyra-sandbox=1', ...HARDENING_ARGS]
     // Run as host UID so files created in a mounted workspace are owned by
     // the host user. Podman rootless on macOS handles this automatically; we
@@ -283,17 +303,7 @@ export class DockerBackend implements SandboxBackend {
     const hostTmp = tmpdir()
     runArgs.push('-v', `${hostTmp}:${hostTmp}:ro`)
     runArgs.push(this.image, 'tail', '-f', '/dev/null')
-
-    const { stdout } = await exec(this.runtime.path, runArgs, {
-      timeout: this.startTimeoutMs,
-    })
-    const containerId = stdout.toString().trim()
-    if (!containerId || containerId.length < 12) {
-      throw new Error(
-        `${this.runtime.runtime} run returned unexpected output: "${containerId.slice(0, 200)}"`,
-      )
-    }
-    return containerId
+    return runArgs
   }
 
   async wrapSpawn(req: SandboxSpawnRequest): Promise<WrappedSpawn> {

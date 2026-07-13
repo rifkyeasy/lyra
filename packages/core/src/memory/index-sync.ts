@@ -62,18 +62,7 @@ export async function ensureSyntheticIndexEntries(
       skipped.push(f.file)
       continue
     }
-    let title = f.fallbackTitle
-    let description: string | null = null
-    try {
-      const content = await readFile(fsPath, 'utf8')
-      const head = content.length > 4096 ? content.slice(0, 4096) : content
-      const parsed = matter(head)
-      const fm = parsed.data as { name?: string; description?: string }
-      if (fm.name && typeof fm.name === 'string') title = fm.name
-      if (fm.description && typeof fm.description === 'string') description = fm.description
-    } catch {
-      // bad frontmatter — fall back to filename
-    }
+    const { title, description } = await readSyntheticMeta(fsPath, f.fallbackTitle)
     index = addEntryLine(index, {
       file: f.file,
       title,
@@ -87,6 +76,29 @@ export async function ensureSyntheticIndexEntries(
   }
 
   return { added, skipped }
+}
+
+/**
+ * Read an entry's frontmatter `name`/`description` (best-effort). Falls back to
+ * the supplied title and a null description when the file or frontmatter is bad.
+ */
+async function readSyntheticMeta(
+  fsPath: string,
+  fallbackTitle: string,
+): Promise<{ title: string; description: string | null }> {
+  let title = fallbackTitle
+  let description: string | null = null
+  try {
+    const content = await readFile(fsPath, 'utf8')
+    const head = content.length > 4096 ? content.slice(0, 4096) : content
+    const parsed = matter(head)
+    const fm = parsed.data as { name?: string; description?: string }
+    if (fm.name && typeof fm.name === 'string') title = fm.name
+    if (fm.description && typeof fm.description === 'string') description = fm.description
+  } catch {
+    // bad frontmatter — fall back to filename
+  }
+  return { title, description }
 }
 
 async function fileExists(path: string): Promise<boolean> {

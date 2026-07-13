@@ -2,8 +2,9 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 import { agentPaths } from '../paths'
-import type { ToolDef } from '../tools/types'
+import type { ToolDef, ToolResult } from '../tools/types'
 import { readIndexFile } from './index-file'
+import type { MemoryIndexEntry } from './types'
 
 /**
  * `memory.read` — fetch a memory file's full body by title, slug, or relative
@@ -64,105 +65,16 @@ export function makeMemoryReadTool({
       const tried: string[] = []
 
       // 1. Direct relative path with .md (path-traversal-checked).
-      if (query.endsWith('.md') && query.includes('/')) {
-        const result = await safeRead(query)
-        tried.push(query)
-        if (result) return success(query, result)
-      }
+      const direct = await tryDirectPath(safeRead, query, tried)
+      if (direct) return direct
 
-      // 2. MEMORY.md lookup — match by title or filename. Three passes:
-      //    (a) exact match on title or file
-      //    (b) substring of title or file contains the full query
-      //    (c) token-overlap score (each non-stopword in query that appears
-      //        in the entry's title+file+hook counts; ties broken by recency)
-      // Pass (c) is the one that catches "tool test run" → "Tool test session"
-      // — the brain often paraphrases titles when recalling, and substring
-      // match alone fails when the operator's word order or extra tokens
-      // differ from the canonical name.
-      try {
-        const idx = await readIndexFile(memoryIndex)
-        const q = query.toLowerCase()
-        const entries = Array.from(idx.entries.values())
-        const exact = entries.find(e => e.title.toLowerCase() === q || e.file.toLowerCase() === q)
-        const substringMatch =
-          exact ??
-          entries.find(e => e.title.toLowerCase().includes(q) || e.file.toLowerCase().includes(q))
-        let match = substringMatch
-        if (!match) {
-          const STOP = new Set([
-            'the',
-            'a',
-            'an',
-            'and',
-            'or',
-            'of',
-            'to',
-            'in',
-            'on',
-            'for',
-            'is',
-            'are',
-            'was',
-            'were',
-            'be',
-            'been',
-            'i',
-            'my',
-            'me',
-            'you',
-            'your',
-            'about',
-            'remember',
-            'what',
-            'did',
-            'tell',
-            'said',
-            'told',
-            'memory',
-            'note',
-            'notes',
-          ])
-          const tokens = q.split(/[^a-z0-9]+/).filter(t => t.length >= 2 && !STOP.has(t))
-          if (tokens.length > 0) {
-            let best: { entry: (typeof entries)[number]; score: number } | null = null
-            for (const e of entries) {
-              const blob = `${e.title} ${e.file} ${e.hook ?? ''}`.toLowerCase()
-              const score = tokens.reduce((s, t) => s + (blob.includes(t) ? 1 : 0), 0)
-              if (score > 0 && (best === null || score > best.score)) {
-                best = { entry: e, score }
-              }
-            }
-            if (best && best.score >= Math.max(1, Math.ceil(tokens.length / 2))) {
-              match = best.entry
-            }
-          }
-        }
-        if (match) {
-          const result = await safeRead(match.file)
-          tried.push(`MEMORY.md→${match.file}`)
-          if (result) return success(match.file, result)
-        }
-      } catch {
-        // MEMORY.md missing or unreadable — fall through to direct paths.
-      }
+      // 2. MEMORY.md lookup — match by title/filename/token overlap.
+      const viaIndex = await tryIndexLookup(safeRead, memoryIndex, query, tried)
+      if (viaIndex) return viaIndex
 
       // 3. Common naming patterns
-      const stem = query.replace(/\.md$/, '').replace(/^\/+/, '')
-      const fallbacks = [
-        `agent/${stem}.md`,
-        `user/${stem}.md`,
-        `agent/identity-${stem}.md`,
-        `agent/learned-${stem}.md`,
-        `user/user-${stem}.md`,
-        `user/feedback-${stem}.md`,
-        `user/project-${stem}.md`,
-        `user/reference-${stem}.md`,
-      ]
-      for (const rel of fallbacks) {
-        const result = await safeRead(rel)
-        tried.push(rel)
-        if (result) return success(rel, result)
-      }
+      const viaFallback = await tryFallbackPaths(safeRead, query, tried)
+      if (viaFallback) return viaFallback
 
       return {
         ok: false,
@@ -170,6 +82,139 @@ export function makeMemoryReadTool({
       }
     },
   }
+}
+
+type SafeReader = (relPath: string) => Promise<string | null>
+
+/** Step 1: read `name` verbatim when it looks like a relative `.md` path. */
+async function tryDirectPath(
+  safeRead: SafeReader,
+  query: string,
+  tried: string[],
+): Promise<ToolResult | null> {
+  if (!(query.endsWith('.md') && query.includes('/'))) return null
+  const result = await safeRead(query)
+  tried.push(query)
+  return result ? success(query, result) : null
+}
+
+/**
+ * Step 2: MEMORY.md lookup — match by title or filename. Three passes:
+ *   (a) exact match on title or file
+ *   (b) substring of title or file contains the full query
+ *   (c) token-overlap score (each non-stopword in query that appears
+ *       in the entry's title+file+hook counts; ties broken by recency)
+ * Pass (c) is the one that catches "tool test run" → "Tool test session"
+ * — the brain often paraphrases titles when recalling, and substring
+ * match alone fails when the operator's word order or extra tokens
+ * differ from the canonical name.
+ */
+async function tryIndexLookup(
+  safeRead: SafeReader,
+  memoryIndex: string,
+  query: string,
+  tried: string[],
+): Promise<ToolResult | null> {
+  try {
+    const idx = await readIndexFile(memoryIndex)
+    const q = query.toLowerCase()
+    const entries = Array.from(idx.entries.values())
+    const match = findIndexMatch(entries, q)
+    if (!match) return null
+    const result = await safeRead(match.file)
+    tried.push(`MEMORY.md→${match.file}`)
+    return result ? success(match.file, result) : null
+  } catch {
+    // MEMORY.md missing or unreadable — fall through to direct paths.
+    return null
+  }
+}
+
+const MEMORY_QUERY_STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'of',
+  'to',
+  'in',
+  'on',
+  'for',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'i',
+  'my',
+  'me',
+  'you',
+  'your',
+  'about',
+  'remember',
+  'what',
+  'did',
+  'tell',
+  'said',
+  'told',
+  'memory',
+  'note',
+  'notes',
+])
+
+/** Resolve the best MEMORY.md entry for a lower-cased query, or null. */
+function findIndexMatch(entries: MemoryIndexEntry[], q: string): MemoryIndexEntry | null {
+  const exact = entries.find(e => e.title.toLowerCase() === q || e.file.toLowerCase() === q)
+  const substringMatch =
+    exact ??
+    entries.find(e => e.title.toLowerCase().includes(q) || e.file.toLowerCase().includes(q))
+  if (substringMatch) return substringMatch
+  const tokens = q.split(/[^a-z0-9]+/).filter(t => t.length >= 2 && !MEMORY_QUERY_STOPWORDS.has(t))
+  if (tokens.length === 0) return null
+  return scoreTokenOverlap(entries, tokens)
+}
+
+/** Token-overlap scorer for pass (c); returns the entry clearing the half-token threshold, or null. */
+function scoreTokenOverlap(entries: MemoryIndexEntry[], tokens: string[]): MemoryIndexEntry | null {
+  let best: { entry: MemoryIndexEntry; score: number } | null = null
+  for (const e of entries) {
+    const blob = `${e.title} ${e.file} ${e.hook ?? ''}`.toLowerCase()
+    const score = tokens.reduce((s, t) => s + (blob.includes(t) ? 1 : 0), 0)
+    if (score > 0 && (best === null || score > best.score)) {
+      best = { entry: e, score }
+    }
+  }
+  if (best && best.score >= Math.max(1, Math.ceil(tokens.length / 2))) {
+    return best.entry
+  }
+  return null
+}
+
+/** Step 3: try common naming patterns as a last resort. */
+async function tryFallbackPaths(
+  safeRead: SafeReader,
+  query: string,
+  tried: string[],
+): Promise<ToolResult | null> {
+  const stem = query.replace(/\.md$/, '').replace(/^\/+/, '')
+  const fallbacks = [
+    `agent/${stem}.md`,
+    `user/${stem}.md`,
+    `agent/identity-${stem}.md`,
+    `agent/learned-${stem}.md`,
+    `user/user-${stem}.md`,
+    `user/feedback-${stem}.md`,
+    `user/project-${stem}.md`,
+    `user/reference-${stem}.md`,
+  ]
+  for (const rel of fallbacks) {
+    const result = await safeRead(rel)
+    tried.push(rel)
+    if (result) return success(rel, result)
+  }
+  return null
 }
 
 /**

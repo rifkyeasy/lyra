@@ -22,8 +22,8 @@ import {
 } from '@mysten/walrus'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
-import { evaluatePolicy, suiToMist } from '../policy'
-import { simulate } from '../simulate'
+import { simulateAndExecute } from '../execute'
+import { policyBlock, suiToMist } from '../policy'
 import type { OnchainRuntimeContext } from '../types'
 
 // WAL has 9 decimals (like SUI). Walrus rejects a pool contribution below its
@@ -87,6 +87,34 @@ async function resolveNode(
   return { nodeId: best.node_id, weight: best.weight }
 }
 
+/** Merge the agent's WAL coins, split off `frost`, stake it with `node`, and send
+ *  the resulting StakedWal back to the agent. */
+function buildWalrusStakeTx(
+  pkg: string,
+  stakingId: string,
+  node: { nodeId: string },
+  frost: bigint,
+  firstCoin: { coinObjectId: string },
+  restCoins: { coinObjectId: string }[],
+  agentAddress: string,
+): Transaction {
+  const tx = new Transaction()
+  const primary = tx.object(firstCoin.coinObjectId)
+  if (restCoins.length > 0) {
+    tx.mergeCoins(
+      primary,
+      restCoins.map(c => tx.object(c.coinObjectId)),
+    )
+  }
+  const [toStake] = tx.splitCoins(primary, [tx.pure.u64(frost)])
+  const staked = tx.moveCall({
+    target: `${pkg}::staking::stake_with_pool`,
+    arguments: [tx.object(stakingId), toStake, tx.pure.id(node.nodeId)],
+  })
+  tx.transferObjects([staked], agentAddress)
+  return tx
+}
+
 // ─────────────────────────── walrus.stake ───────────────────────────
 
 const StakeSchema = z.object({
@@ -98,6 +126,55 @@ const StakeSchema = z.object({
 })
 type StakeArgs = z.infer<typeof StakeSchema>
 
+interface WalrusStakePrep {
+  pkg: string
+  stakingId: string
+  node: { nodeId: string; weight: number }
+  frost: bigint
+  firstCoin: { coinObjectId: string }
+  restCoins: { coinObjectId: string }[]
+}
+
+/** Validate the amount, gate on policy, and resolve the live staking objects, the
+ *  target node, and the agent's WAL coins — everything the stake PTB needs. */
+async function prepareWalrusStake(
+  ctx: OnchainRuntimeContext,
+  amount: string,
+  wantNode?: string,
+): Promise<WalrusStakePrep | { error: string }> {
+  const frost = suiToMist(amount) // WAL shares SUI's 9-decimal scaling
+  if (frost === undefined || frost <= 0n) return { error: `invalid amount "${amount}"` }
+  if (frost < MIN_WAL_FROST)
+    return {
+      error: `amount too small: ${fmtWal(frost)} WAL is below the ${fmtWal(MIN_WAL_FROST)} WAL minimum for staking`,
+    }
+
+  const { pkg, stakingId, walType, walrus } = await resolveWalrus(ctx)
+
+  const blocked = policyBlock(ctx.policy, {
+    kind: 'transfer',
+    coinType: walType,
+    amountMist: frost,
+    protocol: 'walrus',
+  })
+  if (blocked) return { error: blocked }
+
+  const bal = await ctx.client.getBalance({ owner: ctx.agentAddress, coinType: walType })
+  if (BigInt(bal.totalBalance) < frost)
+    return {
+      error: `insufficient WAL: have ${fmtWal(BigInt(bal.totalBalance))}, need ${fmtWal(frost)}`,
+    }
+
+  const node = await resolveNode(walrus, wantNode)
+  if (!node) return { error: 'no active Walrus storage node found to stake with' }
+
+  const coins = await ctx.client.getCoins({ owner: ctx.agentAddress, coinType: walType })
+  const [firstCoin, ...restCoins] = coins.data
+  if (!firstCoin) return { error: 'no WAL coins in the agent wallet' }
+
+  return { pkg, stakingId, node, frost, firstCoin, restCoins }
+}
+
 export function makeWalrusStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
   return {
     name: 'walrus.stake',
@@ -107,77 +184,25 @@ export function makeWalrusStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> 
     schema: StakeSchema,
     handler: async args => {
       try {
-        const frost = suiToMist(args.amount) // WAL shares SUI's 9-decimal scaling
-        if (frost === undefined || frost <= 0n) {
-          return { ok: false, error: `invalid amount "${args.amount}"` }
-        }
-        if (frost < MIN_WAL_FROST) {
-          return {
-            ok: false,
-            error: `amount too small: ${fmtWal(frost)} WAL is below the ${fmtWal(MIN_WAL_FROST)} WAL minimum for staking`,
-          }
-        }
+        const prep = await prepareWalrusStake(ctx, args.amount, args.node)
+        if ('error' in prep) return { ok: false, error: prep.error }
+        const { pkg, stakingId, node, frost, firstCoin, restCoins } = prep
 
-        const { pkg, stakingId, walType, walrus } = await resolveWalrus(ctx)
+        const tx = buildWalrusStakeTx(
+          pkg,
+          stakingId,
+          node,
+          frost,
+          firstCoin,
+          restCoins,
+          ctx.agentAddress,
+        )
 
-        if (ctx.policy) {
-          const verdict = evaluatePolicy(
-            { kind: 'transfer', coinType: walType, amountMist: frost, protocol: 'walrus' },
-            ctx.policy,
-          )
-          if (!verdict.allowed) {
-            return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
-          }
-        }
-
-        const bal = await ctx.client.getBalance({ owner: ctx.agentAddress, coinType: walType })
-        if (BigInt(bal.totalBalance) < frost) {
-          return {
-            ok: false,
-            error: `insufficient WAL: have ${fmtWal(BigInt(bal.totalBalance))}, need ${fmtWal(frost)}`,
-          }
-        }
-
-        const node = await resolveNode(walrus, args.node)
-        if (!node) return { ok: false, error: 'no active Walrus storage node found to stake with' }
-
-        const coins = await ctx.client.getCoins({ owner: ctx.agentAddress, coinType: walType })
-        const [firstCoin, ...restCoins] = coins.data
-        if (!firstCoin) return { ok: false, error: 'no WAL coins in the agent wallet' }
-
-        const tx = new Transaction()
-        const primary = tx.object(firstCoin.coinObjectId)
-        if (restCoins.length > 0) {
-          tx.mergeCoins(
-            primary,
-            restCoins.map(c => tx.object(c.coinObjectId)),
-          )
-        }
-        const [toStake] = tx.splitCoins(primary, [tx.pure.u64(frost)])
-        const staked = tx.moveCall({
-          target: `${pkg}::staking::stake_with_pool`,
-          arguments: [tx.object(stakingId), toStake, tx.pure.id(node.nodeId)],
-        })
-        tx.transferObjects([staked], ctx.agentAddress)
-
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true, showObjectChanges: true },
-        })
-        if (res.effects?.status?.status !== 'success') {
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        }
-        await ctx.client.waitForTransaction({ digest: res.digest })
-        const stakedWal = res.objectChanges?.find(
+        const exec = await simulateAndExecute(ctx, tx, { showObjectChanges: true })
+        if (!exec.ok) return exec
+        const stakedWal = exec.value.objectChanges?.find(
           c =>
-            c.type === 'created' &&
+            (c as { type?: string }).type === 'created' &&
             String((c as { objectType?: string }).objectType).endsWith(STAKED_WAL_SUFFIX),
         ) as { objectId?: string } | undefined
 
@@ -188,7 +213,7 @@ export function makeWalrusStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> 
             action: 'stake',
             amountWal: args.amount,
             node: node.nodeId,
-            digest: res.digest,
+            digest: exec.value.digest,
             stakedWalId: stakedWal?.objectId ?? null,
             status: 'success',
           },
@@ -231,15 +256,13 @@ export function makeWalrusUnstake(ctx: OnchainRuntimeContext): ToolDef<UnstakeAr
           if (!stakedId) return { ok: false, error: 'no StakedWal position found to unstake' }
         }
 
-        if (ctx.policy) {
-          const verdict = evaluatePolicy(
-            { kind: 'transfer', coinType: walType, amountMist: 0n, protocol: 'walrus' },
-            ctx.policy,
-          )
-          if (!verdict.allowed) {
-            return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
-          }
-        }
+        const blocked = policyBlock(ctx.policy, {
+          kind: 'transfer',
+          coinType: walType,
+          amountMist: 0n,
+          protocol: 'walrus',
+        })
+        if (blocked) return { ok: false, error: blocked }
 
         const tx = new Transaction()
         tx.moveCall({
@@ -247,29 +270,15 @@ export function makeWalrusUnstake(ctx: OnchainRuntimeContext): ToolDef<UnstakeAr
           arguments: [tx.object(stakingId), tx.object(stakedId)],
         })
 
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true },
-        })
-        if (res.effects?.status?.status !== 'success') {
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        }
-        await ctx.client.waitForTransaction({ digest: res.digest })
-
+        const exec = await simulateAndExecute(ctx, tx)
+        if (!exec.ok) return exec
         return {
           ok: true,
           data: {
             protocol: 'walrus-staking',
             action: 'unstake',
             stakedWalId: stakedId,
-            digest: res.digest,
+            digest: exec.value.digest,
             note: 'WAL becomes withdrawable after the next Walrus epoch',
             status: 'success',
           },

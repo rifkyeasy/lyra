@@ -32,50 +32,89 @@ export interface InitOpts {
   new?: boolean
 }
 
-export async function runInit(opts?: InitOpts): Promise<void> {
-  const configPath = agentPaths.config
-  const interactive = !!process.stdin.isTTY && !opts?.yes
-  const forceNew = !!opts?.new || !interactive
+type AgentResolution = { agent: SuiAgent; linkedOwner: string | null }
+type ModelPick = Awaited<ReturnType<typeof pickBrainModel>>
 
-  intro('lyra init')
-
-  if (existsSync(configPath) && !opts?.resume && interactive) {
-    const choice = (await select({
-      message: `${configPath} exists`,
-      options: [
-        { value: 'overwrite', label: 'Start fresh (overwrite)' },
-        { value: 'cancel', label: 'Cancel' },
-      ],
-      initialValue: 'cancel',
-    })) as 'overwrite' | 'cancel' | symbol
-    if (isCancel(choice) || choice === 'cancel') {
-      cancel('Aborted.')
-      return
-    }
+/** Returns true when the operator aborted (caller should stop). */
+async function promptOverwriteIfExists(
+  configPath: string,
+  resume: boolean,
+  interactive: boolean,
+): Promise<boolean> {
+  if (!(existsSync(configPath) && !resume && interactive)) return false
+  const choice = (await select({
+    message: `${configPath} exists`,
+    options: [
+      { value: 'overwrite', label: 'Start fresh (overwrite)' },
+      { value: 'cancel', label: 'Cancel' },
+    ],
+    initialValue: 'cancel',
+  })) as 'overwrite' | 'cancel' | symbol
+  if (isCancel(choice) || choice === 'cancel') {
+    cancel('Aborted.')
+    return true
   }
+  return false
+}
 
-  // 1) LLM key. Reuse OPENAI_API_KEY if present; else prompt + persist so the
-  //    CLI runs keyless next time. In non-interactive mode we just use whatever
-  //    the env provides (the CLI falls back to the hosted demo proxy if unset).
-  if (interactive && !process.env.OPENAI_API_KEY && !process.env.LYRA_LLM_API_KEY) {
-    const key = await password({
-      message: 'OpenAI API key (sk-…) — leave blank to use the hosted demo proxy',
+/**
+ * 1) LLM key. Reuse OPENAI_API_KEY if present; else prompt + persist so the
+ *    CLI runs keyless next time. In non-interactive mode we just use whatever
+ *    the env provides (the CLI falls back to the hosted demo proxy if unset).
+ *    Returns true when the operator aborted.
+ */
+async function promptLlmKey(interactive: boolean): Promise<boolean> {
+  if (!(interactive && !process.env.OPENAI_API_KEY && !process.env.LYRA_LLM_API_KEY)) return false
+  const key = await password({
+    message: 'OpenAI API key (sk-…) — leave blank to use the hosted demo proxy',
+  })
+  if (isCancel(key)) {
+    cancel('Aborted.')
+    return true
+  }
+  const trimmed = (key ?? '').toString().trim()
+  if (trimmed) {
+    const envPath = setDotenvVar('OPENAI_API_KEY', trimmed)
+    console.log(`  saved OPENAI_API_KEY → ${envPath}`)
+  }
+  return false
+}
+
+/** Login with the web wallet; returns null when login fails/cancels. */
+async function loginAgent(): Promise<AgentResolution | null> {
+  try {
+    const result = await deviceLink({
+      base: resolveWebBase(),
+      fetchImpl: fetch,
+      sleep: (ms: number) => new Promise(r => setTimeout(r, ms)),
+      log: (m: string) => console.log(m),
     })
-    if (isCancel(key)) {
-      cancel('Aborted.')
-      return
-    }
-    const trimmed = (key ?? '').toString().trim()
-    if (trimmed) {
-      const envPath = setDotenvVar('OPENAI_API_KEY', trimmed)
-      console.log(`  saved OPENAI_API_KEY → ${envPath}`)
-    }
+    // writeAgentKey already ran inside deviceLink; reload from disk.
+    const loaded = loadAgent()
+    if (!loaded) throw new Error('agent key was not written after login')
+    console.log('')
+    console.log(`✓ Linked agent ${result.address} (same as your web wallet)`)
+    return { agent: loaded, linkedOwner: result.owner }
+  } catch (e) {
+    cancel(`Login failed: ${(e as Error).message}`)
+    return null
   }
+}
 
-  // 2) Agent: create new (default) or login with web.
-  let agent: SuiAgent
-  let linkedOwner: string | null = null
+/** Create a fresh Ed25519 agent and persist the secret. */
+function createAgent(): AgentResolution {
+  const kp = new Ed25519Keypair()
+  const secret = kp.getSecretKey()
+  const keyPath = writeAgentKey(secret)
+  const agent: SuiAgent = { keypair: keypairFromSecret(secret), address: kp.toSuiAddress() }
+  console.log('')
+  console.log(`✓ Created agent ${agent.address}`)
+  console.log(`  key  ${keyPath} (mode 0600 — back this up; it controls funds)`)
+  return { agent, linkedOwner: null }
+}
 
+/** 2) Agent: create new (default) or login with web. Null = aborted. */
+async function resolveAgent(forceNew: boolean): Promise<AgentResolution | null> {
   let mode: 'create' | 'login' = 'create'
   if (!forceNew) {
     const picked = (await select({
@@ -94,69 +133,51 @@ export async function runInit(opts?: InitOpts): Promise<void> {
     })) as 'create' | 'login' | symbol
     if (isCancel(picked)) {
       cancel('Aborted.')
-      return
+      return null
     }
     mode = picked
   }
+  return mode === 'login' ? await loginAgent() : createAgent()
+}
 
-  if (mode === 'login') {
-    try {
-      const result = await deviceLink({
-        base: resolveWebBase(),
-        fetchImpl: fetch,
-        sleep: (ms: number) => new Promise(r => setTimeout(r, ms)),
-        log: (m: string) => console.log(m),
-      })
-      linkedOwner = result.owner
-      // writeAgentKey already ran inside deviceLink; reload from disk.
-      const loaded = loadAgent()
-      if (!loaded) throw new Error('agent key was not written after login')
-      agent = loaded
-      console.log('')
-      console.log(`✓ Linked agent ${result.address} (same as your web wallet)`)
-    } catch (e) {
-      cancel(`Login failed: ${(e as Error).message}`)
-      return
-    }
-  } else {
-    // Create new: generate a fresh Ed25519 agent and persist the secret.
-    const kp = new Ed25519Keypair()
-    const secret = kp.getSecretKey()
-    const keyPath = writeAgentKey(secret)
-    agent = { keypair: keypairFromSecret(secret), address: kp.toSuiAddress() }
-    console.log('')
-    console.log(`✓ Created agent ${agent.address}`)
-    console.log(`  key  ${keyPath} (mode 0600 — back this up; it controls funds)`)
+/** 3) Network. Skip the prompt when non-interactive (default mainnet). Null = aborted. */
+async function promptNetwork(interactive: boolean): Promise<LyraNetwork | null> {
+  if (!interactive) return DEFAULT_NETWORK
+  const picked = (await select({
+    message: 'Which Sui network?',
+    options: [
+      { value: 'mainnet' as LyraNetwork, label: 'Sui mainnet' },
+      { value: 'testnet' as LyraNetwork, label: 'Sui testnet' },
+    ],
+    initialValue: DEFAULT_NETWORK as LyraNetwork,
+  })) as LyraNetwork | symbol
+  if (isCancel(picked)) {
+    cancel('Aborted.')
+    return null
   }
+  return picked
+}
 
-  // 3) Network. Skip the prompt when non-interactive (default mainnet).
-  let network: LyraNetwork = DEFAULT_NETWORK
-  if (interactive) {
-    const picked = (await select({
-      message: 'Which Sui network?',
-      options: [
-        { value: 'mainnet' as LyraNetwork, label: 'Sui mainnet' },
-        { value: 'testnet' as LyraNetwork, label: 'Sui testnet' },
-      ],
-      initialValue: DEFAULT_NETWORK as LyraNetwork,
-    })) as LyraNetwork | symbol
-    if (isCancel(picked)) {
-      cancel('Aborted.')
-      return
-    }
-    network = picked
-  }
-
-  const modelPick = await pickBrainModel()
-  const telegramEnabled = !!process.env.TELEGRAM_BOT_TOKEN
-
-  const { agentId, packageId } = await finalizeSetup({
-    agentAddress: agent.address,
+function buildSummaryLines(params: {
+  agentId: string
+  agent: SuiAgent
+  linkedOwner: string | null
+  network: LyraNetwork
+  configPath: string
+  packageId: string
+  modelPick: ModelPick
+  telegramEnabled: boolean
+}): string[] {
+  const {
+    agentId,
+    agent,
     linkedOwner,
     network,
-    brainProvider: modelPick?.provider ?? null,
-    brainModel: modelPick?.model ?? null,
-  })
+    configPath,
+    packageId,
+    modelPick,
+    telegramEnabled,
+  } = params
   const lines = [
     '',
     `  agent id    ${agentId}`,
@@ -173,5 +194,45 @@ export async function runInit(opts?: InitOpts): Promise<void> {
     '',
     'Next: `lyra` to chat · `lyra status` for health · `lyra demo` for the guarded pipeline',
   )
+  return lines
+}
+
+export async function runInit(opts?: InitOpts): Promise<void> {
+  const configPath = agentPaths.config
+  const interactive = !!process.stdin.isTTY && !opts?.yes
+  const forceNew = !!opts?.new || !interactive
+
+  intro('lyra init')
+
+  if (await promptOverwriteIfExists(configPath, !!opts?.resume, interactive)) return
+  if (await promptLlmKey(interactive)) return
+
+  const resolved = await resolveAgent(forceNew)
+  if (!resolved) return
+  const { agent, linkedOwner } = resolved
+
+  const network = await promptNetwork(interactive)
+  if (network === null) return
+
+  const modelPick = await pickBrainModel()
+  const telegramEnabled = !!process.env.TELEGRAM_BOT_TOKEN
+
+  const { agentId, packageId } = await finalizeSetup({
+    agentAddress: agent.address,
+    linkedOwner,
+    network,
+    brainProvider: modelPick?.provider ?? null,
+    brainModel: modelPick?.model ?? null,
+  })
+  const lines = buildSummaryLines({
+    agentId,
+    agent,
+    linkedOwner,
+    network,
+    configPath,
+    packageId,
+    modelPick,
+    telegramEnabled,
+  })
   outro(lines.join('\n'))
 }

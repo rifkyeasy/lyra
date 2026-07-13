@@ -121,6 +121,32 @@ async function buildLocalConfig(agentAddress: string): Promise<RuntimeConfig> {
   }
 }
 
+/**
+ * Proactively reap a zombie/crashed listener's bot-token lock so the
+ * TelegramListener doesn't get stuck waiting for TTL eviction. Best-effort:
+ * a failed cleanup is logged and swallowed so it never blocks boot.
+ */
+async function reapStaleTelegramLock(
+  secrets: GatewaySecrets | undefined,
+  agentId: string,
+): Promise<void> {
+  const botToken = secrets?.telegram?.botToken
+  if (!botToken) return
+  try {
+    const { clearStaleTelegramTokenLock } = await import('lyra-plugin-telegram')
+    const cleanup = clearStaleTelegramTokenLock(botToken, { agentId })
+    if (cleanup.cleared) {
+      process.stdout.write(
+        `[gateway] ${new Date().toISOString()} cleared stale TG bot-token lock (${cleanup.reason})\n`,
+      )
+    }
+  } catch (err) {
+    process.stderr.write(
+      `gateway: stale-tg-lock-cleanup failed: ${(err as Error).message?.slice(0, 200) ?? 'unknown'}\n`,
+    )
+  }
+}
+
 async function main(): Promise<void> {
   let agentSecret = envOrNull('LYRA_AGENT_KEY')
   if (!agentSecret) {
@@ -153,21 +179,7 @@ async function main(): Promise<void> {
 
   // Proactively reap a zombie/crashed listener's bot-token lock so the
   // TelegramListener doesn't get stuck waiting for TTL eviction.
-  if (secrets?.telegram?.botToken) {
-    try {
-      const { clearStaleTelegramTokenLock } = await import('lyra-plugin-telegram')
-      const cleanup = clearStaleTelegramTokenLock(secrets.telegram.botToken, { agentId })
-      if (cleanup.cleared) {
-        process.stdout.write(
-          `[gateway] ${new Date().toISOString()} cleared stale TG bot-token lock (${cleanup.reason})\n`,
-        )
-      }
-    } catch (err) {
-      process.stderr.write(
-        `gateway: stale-tg-lock-cleanup failed: ${(err as Error).message?.slice(0, 200) ?? 'unknown'}\n`,
-      )
-    }
-  }
+  await reapStaleTelegramLock(secrets, agentId)
 
   // Acquire host-wide gateway lock so two `lyra gateway run` calls for the
   // same agent can't both bind the socket. 5-minute TTL with refresh below.

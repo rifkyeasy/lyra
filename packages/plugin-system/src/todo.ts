@@ -1,4 +1,4 @@
-import type { ToolDef } from 'lyra-core'
+import type { ToolDef, ToolResult } from 'lyra-core'
 import { z } from 'zod'
 
 /**
@@ -36,13 +36,13 @@ export function makeTodo(): ToolDef<z.infer<typeof TodoSchema>> {
     searchHint: 'todo task plan steps tracker',
     schema: TodoSchema,
     handler: args => {
-      if (args.action === 'add') {
+      const addTask = (): ToolResult => {
         if (!args.text) return { ok: false, error: 'text is required for add' }
         const id = String(next++)
         tasks.push({ id, text: args.text, status: 'pending' })
         return { ok: true, data: { id, tasks } }
       }
-      if (args.action === 'update') {
+      const updateTask = (): ToolResult => {
         if (!(args.id && args.status)) {
           return { ok: false, error: 'id + status required for update' }
         }
@@ -51,6 +51,8 @@ export function makeTodo(): ToolDef<z.infer<typeof TodoSchema>> {
         tasks[idx] = { ...tasks[idx]!, status: args.status }
         return { ok: true, data: { tasks } }
       }
+      if (args.action === 'add') return addTask()
+      if (args.action === 'update') return updateTask()
       if (args.action === 'clear') {
         tasks.length = 0
         return { ok: true, data: { tasks } }

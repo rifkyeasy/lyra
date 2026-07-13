@@ -93,36 +93,45 @@ export class ToolRegistry {
   search(query: string, maxResults = 5): ToolDef[] {
     const trimmed = query.trim()
     if (trimmed.startsWith('select:')) {
-      const names = trimmed
-        .slice('select:'.length)
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean)
-      return names
-        .map(n => this.tools.get(n))
-        .filter((t): t is ToolDef => !!t && this.isEnabled(t.name))
-        .slice(0, maxResults)
+      return this.selectByNames(trimmed, maxResults)
     }
-    const required: string[] = []
-    const keywords: string[] = []
-    for (const part of trimmed.toLowerCase().split(/\s+/).filter(Boolean)) {
-      if (part.startsWith('+')) required.push(part.slice(1))
-      else keywords.push(part)
-    }
+    const { required, keywords } = parseSearchTerms(trimmed)
     const scored: { tool: ToolDef; score: number }[] = []
     for (const tool of this.list()) {
-      const haystack = [tool.name, tool.description, tool.searchHint ?? ''].join(' ').toLowerCase()
-      if (!required.every(r => haystack.includes(r))) continue
-      let score = required.length > 0 ? 1 : 0
-      for (const kw of keywords) {
-        if (haystack.includes(kw)) score++
-      }
+      const score = this.scoreToolMatch(tool, required, keywords)
       if (score > 0) scored.push({ tool, score })
     }
     return scored
       .sort((a, b) => b.score - a.score)
       .slice(0, maxResults)
       .map(c => c.tool)
+  }
+
+  /** Exact-name `select:a,b,c` lookup restricted to enabled tools. */
+  private selectByNames(trimmed: string, maxResults: number): ToolDef[] {
+    const names = trimmed
+      .slice('select:'.length)
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+    return names
+      .map(n => this.tools.get(n))
+      .filter((t): t is ToolDef => !!t && this.isEnabled(t.name))
+      .slice(0, maxResults)
+  }
+
+  /**
+   * Score a tool against a keyword query. Returns 0 when a `+required` term is
+   * missing (so the caller skips it) or when nothing matched.
+   */
+  private scoreToolMatch(tool: ToolDef, required: string[], keywords: string[]): number {
+    const haystack = [tool.name, tool.description, tool.searchHint ?? ''].join(' ').toLowerCase()
+    if (!required.every(r => haystack.includes(r))) return 0
+    let score = required.length > 0 ? 1 : 0
+    for (const kw of keywords) {
+      if (haystack.includes(kw)) score++
+    }
+    return score
   }
 
   async dispatch(call: ToolCall): Promise<ToolResult> {
@@ -149,4 +158,15 @@ export class ToolRegistry {
     }
     return decision ?? true
   }
+}
+
+/** Split a free-text query into `+required` terms and plain keywords. */
+function parseSearchTerms(trimmed: string): { required: string[]; keywords: string[] } {
+  const required: string[] = []
+  const keywords: string[] = []
+  for (const part of trimmed.toLowerCase().split(/\s+/).filter(Boolean)) {
+    if (part.startsWith('+')) required.push(part.slice(1))
+    else keywords.push(part)
+  }
+  return { required, keywords }
 }

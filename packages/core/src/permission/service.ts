@@ -1,4 +1,4 @@
-import { detectDangerousCommand } from './dangerous'
+import { type DangerousMatch, type NoMatch, detectDangerousCommand } from './dangerous'
 
 /**
  * Permission system core. Three resolution modes:
@@ -52,6 +52,14 @@ export interface PermissionServiceOpts {
 
 const DEFAULT_DENY_PROMPTER: PermissionPrompter = async () => 'deny'
 
+export interface PermissionResolution {
+  allowed: boolean
+  reason?: string
+  via: 'yolo' | 'allow' | 'session-allow' | 'once' | 'deny' | 'strict-deny'
+}
+
+type DangerousResult = DangerousMatch | NoMatch
+
 export class PermissionService {
   private mode: PermissionMode
   private prompter: PermissionPrompter
@@ -87,11 +95,7 @@ export class PermissionService {
    *   - Prompt: dangerous pattern OR shell.run => consult `prompter`,
    *     honour session-allow on subsequent identical signatures.
    */
-  async resolve(req: PermissionRequest): Promise<{
-    allowed: boolean
-    reason?: string
-    via: 'yolo' | 'allow' | 'session-allow' | 'once' | 'deny' | 'strict-deny'
-  }> {
+  async resolve(req: PermissionRequest): Promise<PermissionResolution> {
     const dangerous = req.command ? detectDangerousCommand(req.command) : { match: false as const }
 
     // Signature for session-allow tracking. When the request matched a
@@ -103,20 +107,8 @@ export class PermissionService {
       return { allowed: true, via: 'session-allow' }
     }
 
-    // Deterministic policy floor: a `force`-flagged action is material-risk per
-    // the on-chain policy engine and requires human approval BENEATH the
-    // session mode — even under YOLO. strict denies it outright; otherwise it
-    // consults the prompter regardless of mode. Fund controls live in code.
     if (req.force) {
-      if (this.mode === 'strict') {
-        return {
-          allowed: false,
-          reason: `${req.reason} (policy: approval required, denied in strict mode)`,
-          via: 'strict-deny',
-        }
-      }
-      const decision = await this.prompter(req)
-      return this.applyDecision(decision, sigKey)
+      return this.resolveForced(req, sigKey)
     }
 
     if (this.mode === 'off') return { allowed: true, via: 'yolo' }
@@ -127,21 +119,57 @@ export class PermissionService {
     const isValueMoving =
       req.kind === 'chain.send' || req.kind === 'chain.swap' || req.kind === 'chain.write'
     if (this.mode === 'strict') {
-      if (isValueMoving) {
-        return {
-          allowed: false,
-          reason: 'value-moving tx denied in strict mode',
-          via: 'strict-deny',
-        }
-      }
-      if (dangerous.match) {
-        return { allowed: false, reason: dangerous.description, via: 'strict-deny' }
-      }
-      return { allowed: true, via: 'allow' }
+      return this.resolveStrict(dangerous, isValueMoving)
     }
+    return this.resolvePromptMode(req, dangerous, isValueMoving, sigKey)
+  }
 
-    // mode === 'prompt': dangerous patterns + every shell-class invocation
-    // + every value-moving on-chain tx consult the prompter.
+  /**
+   * Deterministic policy floor: a `force`-flagged action is material-risk per
+   * the on-chain policy engine and requires human approval BENEATH the session
+   * mode — even under YOLO. strict denies it outright; otherwise it consults the
+   * prompter regardless of mode. Fund controls live in code.
+   */
+  private async resolveForced(
+    req: PermissionRequest,
+    sigKey: string,
+  ): Promise<PermissionResolution> {
+    if (this.mode === 'strict') {
+      return {
+        allowed: false,
+        reason: `${req.reason} (policy: approval required, denied in strict mode)`,
+        via: 'strict-deny',
+      }
+    }
+    const decision = await this.prompter(req)
+    return this.applyDecision(decision, sigKey)
+  }
+
+  /** strict mode: value-moving + dangerous patterns are denied; everything else allowed. */
+  private resolveStrict(dangerous: DangerousResult, isValueMoving: boolean): PermissionResolution {
+    if (isValueMoving) {
+      return {
+        allowed: false,
+        reason: 'value-moving tx denied in strict mode',
+        via: 'strict-deny',
+      }
+    }
+    if (dangerous.match) {
+      return { allowed: false, reason: dangerous.description, via: 'strict-deny' }
+    }
+    return { allowed: true, via: 'allow' }
+  }
+
+  /**
+   * prompt mode: dangerous patterns + every shell-class invocation + every
+   * value-moving on-chain tx consult the prompter.
+   */
+  private async resolvePromptMode(
+    req: PermissionRequest,
+    dangerous: DangerousResult,
+    isValueMoving: boolean,
+    sigKey: string,
+  ): Promise<PermissionResolution> {
     if (dangerous.match) {
       const decision = await this.prompter({ ...req, reason: dangerous.description })
       return this.applyDecision(decision, sigKey)

@@ -5,6 +5,37 @@ export interface RunPairingListOpts {
   platform?: string
 }
 
+type PendingEntry = ReturnType<PairingStore['listPending']>[number]
+type ApprovedEntry = ReturnType<PairingStore['listApproved']>[number]
+
+function pairingUserLabel(userName: string | undefined): string {
+  return userName ? `@${userName}` : '(unknown)'
+}
+
+function printPendingSection(title: string, pending: PendingEntry[]): void {
+  console.log(`\n${title} (1h TTL):`)
+  if (pending.length === 0) {
+    console.log('  (none)')
+    return
+  }
+  for (const p of pending) {
+    console.log(
+      `  [${p.platform}] ${p.code}  ${pairingUserLabel(p.userName)} id=${p.userId}  age=${p.ageMinutes}m`,
+    )
+  }
+}
+
+function printApprovedSection(title: string, approved: ApprovedEntry[]): void {
+  console.log(`\n${title}:`)
+  if (approved.length === 0) {
+    console.log('  (none)')
+    return
+  }
+  for (const a of approved) {
+    console.log(`  [${a.platform}] ${pairingUserLabel(a.userName)} id=${a.userId}`)
+  }
+}
+
 export async function runPairingList(opts: RunPairingListOpts): Promise<void> {
   const store = await openPairingStore()
   if (!store) return
@@ -12,29 +43,8 @@ export async function runPairingList(opts: RunPairingListOpts): Promise<void> {
   const pending = store.listPending(opts.platform)
   const approved = store.listApproved(opts.platform)
 
-  const pendingTitle = opts.platform ? `Pending (${opts.platform})` : 'Pending'
-  console.log(`\n${pendingTitle} (1h TTL):`)
-  if (pending.length === 0) {
-    console.log('  (none)')
-  } else {
-    for (const p of pending) {
-      const userLabel = p.userName ? `@${p.userName}` : '(unknown)'
-      const idLabel = `id=${p.userId}`
-      console.log(`  [${p.platform}] ${p.code}  ${userLabel} ${idLabel}  age=${p.ageMinutes}m`)
-    }
-  }
-
-  const approvedTitle = opts.platform ? `Approved (${opts.platform})` : 'Approved'
-  console.log(`\n${approvedTitle}:`)
-  if (approved.length === 0) {
-    console.log('  (none)')
-  } else {
-    for (const a of approved) {
-      const userLabel = a.userName ? `@${a.userName}` : '(unknown)'
-      const idLabel = `id=${a.userId}`
-      console.log(`  [${a.platform}] ${userLabel} ${idLabel}`)
-    }
-  }
+  printPendingSection(opts.platform ? `Pending (${opts.platform})` : 'Pending', pending)
+  printApprovedSection(opts.platform ? `Approved (${opts.platform})` : 'Approved', approved)
   console.log()
 }
 

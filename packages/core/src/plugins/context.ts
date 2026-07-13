@@ -175,9 +175,17 @@ export async function loadPlugins(
   names: readonly string[],
   deps: PluginLoaderDeps,
 ): Promise<PluginLoadResult> {
-  const loaded: string[] = []
-  const errors: PluginLoadResult['errors'] = []
-  const ctx: PluginContext = {
+  const result: PluginLoadResult = { loaded: [], errors: [] }
+  const ctx = buildPluginContext(deps)
+  for (const name of names) {
+    await loadSinglePlugin(name, deps, ctx, result)
+  }
+  return result
+}
+
+/** Assemble the immutable plugin context handed to every plugin's `register()`. */
+function buildPluginContext(deps: PluginLoaderDeps): PluginContext {
+  return {
     registerTool: def => deps.tools.register(def),
     registerListener: l => deps.listeners.register(l),
     addHook: (name, fn) => deps.hooks.add(name, fn),
@@ -199,28 +207,40 @@ export async function loadPlugins(
     onchain: deps.onchain,
     telegram: deps.telegram,
   }
-  for (const name of names) {
-    try {
-      const mod = deps.resolve
-        ? await deps.resolve(name)
-        : ((await import(`lyra-ai-plugin-${name}`)) as {
-            default?: NativePlugin
-          } & Partial<NativePlugin>)
-      const plugin: NativePlugin | undefined =
-        mod.default && 'register' in mod.default
-          ? mod.default
-          : 'register' in mod && typeof mod.register === 'function'
-            ? (mod as unknown as NativePlugin)
-            : undefined
-      if (!plugin) {
-        errors.push({ plugin: name, error: 'no exported register(ctx)' })
-        continue
-      }
-      await plugin.register(ctx)
-      loaded.push(name)
-    } catch (e) {
-      errors.push({ plugin: name, error: (e as Error).message ?? String(e) })
-    }
+}
+
+/** Pick the `register(ctx)`-bearing plugin from a resolved module (default or named export). */
+function selectPlugin(
+  mod: { default?: NativePlugin } & Partial<NativePlugin>,
+): NativePlugin | undefined {
+  if (mod.default && 'register' in mod.default) return mod.default
+  if ('register' in mod && typeof mod.register === 'function') {
+    return mod as unknown as NativePlugin
   }
-  return { loaded, errors }
+  return undefined
+}
+
+/** Resolve, validate, and register a single plugin, recording success/error into `result`. */
+async function loadSinglePlugin(
+  name: string,
+  deps: PluginLoaderDeps,
+  ctx: PluginContext,
+  result: PluginLoadResult,
+): Promise<void> {
+  try {
+    const mod = deps.resolve
+      ? await deps.resolve(name)
+      : ((await import(`lyra-ai-plugin-${name}`)) as {
+          default?: NativePlugin
+        } & Partial<NativePlugin>)
+    const plugin = selectPlugin(mod)
+    if (!plugin) {
+      result.errors.push({ plugin: name, error: 'no exported register(ctx)' })
+      return
+    }
+    await plugin.register(ctx)
+    result.loaded.push(name)
+  } catch (e) {
+    result.errors.push({ plugin: name, error: (e as Error).message ?? String(e) })
+  }
 }

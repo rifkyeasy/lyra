@@ -46,22 +46,38 @@ export function matchTriggers(
     typeof args.path === 'string' &&
     (call.name === 'fs.read' || call.name === 'fs.write' || call.name === 'fs.patch')
   ) {
-    for (const skill of skills) {
-      const fp = skill.frontmatter.filePattern
-      if (fp && matchFilePattern(fp, args.path)) {
-        matches.push({ skill, reason: 'filePattern' })
-      }
-    }
+    collectFilePatternMatches(args.path, skills, matches)
   }
   if (typeof args.command === 'string' && call.name === 'shell.run') {
-    for (const skill of skills) {
-      const bp = skill.frontmatter.bashPattern
-      if (bp && matchBashPattern(bp, args.command)) {
-        matches.push({ skill, reason: 'bashPattern' })
-      }
-    }
+    collectBashPatternMatches(args.command, skills, matches)
   }
   return matches
+}
+
+function collectFilePatternMatches(
+  path: string,
+  skills: readonly SkillRef[],
+  matches: SkillTriggerMatch[],
+): void {
+  for (const skill of skills) {
+    const fp = skill.frontmatter.filePattern
+    if (fp && matchFilePattern(fp, path)) {
+      matches.push({ skill, reason: 'filePattern' })
+    }
+  }
+}
+
+function collectBashPatternMatches(
+  command: string,
+  skills: readonly SkillRef[],
+  matches: SkillTriggerMatch[],
+): void {
+  for (const skill of skills) {
+    const bp = skill.frontmatter.bashPattern
+    if (bp && matchBashPattern(bp, command)) {
+      matches.push({ skill, reason: 'bashPattern' })
+    }
+  }
 }
 
 function globToRegex(glob: string): RegExp {

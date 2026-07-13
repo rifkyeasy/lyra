@@ -28,35 +28,48 @@ function findGatewayLock(agentId: string): string | null {
   return existsSync(lockFile) ? lockFile : null
 }
 
-export async function runGatewayStop(opts: GatewayStopOpts): Promise<void> {
-  let agentId = opts.agentId
-  if (!agentId) {
-    const found = await findAndLoadConfig()
-    if (!found?.config) {
-      console.error('lyra gateway stop: no lyra.config.ts and no --agent provided')
-      process.exit(1)
-    }
-    const agentEoa = found.config.identity?.agent ?? null
-    if (!agentEoa) {
-      console.error('lyra gateway stop: config has no agent EOA; run `lyra init` first')
-      process.exit(1)
-    }
-    agentId = placeholderAgentId(agentEoa)
-    const label = `agent ${agentId.slice(0, 8)}…`
-    const eoaLabel = ` (EOA ${agentEoa.slice(0, 6)}…${agentEoa.slice(-4)})`
-    const configPath = found.path ?? '<unknown>'
-    console.log(`lyra gateway stop → ${label}${eoaLabel}`)
-    console.log(`  config: ${configPath}`)
-    console.log(
-      '  if this is not the agent you meant, set LYRA_ROOT or pass --agent <id> before re-running.',
-    )
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
   }
-  const lockFile = findGatewayLock(agentId)
-  if (!lockFile) {
-    console.log(`gateway not running (no lock at ${lockPath(agentId)})`)
-    return
+}
+
+function removeIfExists(path: string): void {
+  try {
+    if (existsSync(path)) unlinkSync(path)
+  } catch {
+    /* ignore */
   }
-  let pid: number
+}
+
+async function resolveStopAgentId(opts: GatewayStopOpts): Promise<string> {
+  if (opts.agentId) return opts.agentId
+  const found = await findAndLoadConfig()
+  if (!found?.config) {
+    console.error('lyra gateway stop: no lyra.config.ts and no --agent provided')
+    process.exit(1)
+  }
+  const agentEoa = found.config.identity?.agent ?? null
+  if (!agentEoa) {
+    console.error('lyra gateway stop: config has no agent EOA; run `lyra init` first')
+    process.exit(1)
+  }
+  const agentId = placeholderAgentId(agentEoa)
+  const label = `agent ${agentId.slice(0, 8)}…`
+  const eoaLabel = ` (EOA ${agentEoa.slice(0, 6)}…${agentEoa.slice(-4)})`
+  const configPath = found.path ?? '<unknown>'
+  console.log(`lyra gateway stop → ${label}${eoaLabel}`)
+  console.log(`  config: ${configPath}`)
+  console.log(
+    '  if this is not the agent you meant, set LYRA_ROOT or pass --agent <id> before re-running.',
+  )
+  return agentId
+}
+
+function readPidFromLock(lockFile: string): number {
   try {
     const raw = readFileSync(lockFile, 'utf8').trim()
     // Lock files are JSON with shape `{pid, scope, identityHash, expiresAt}`.
@@ -65,22 +78,49 @@ export async function runGatewayStop(opts: GatewayStopOpts): Promise<void> {
       console.error('lyra gateway stop: lock file has no pid field')
       process.exit(1)
     }
-    pid = parsed.pid
+    return parsed.pid
   } catch (e) {
     console.error(`lyra gateway stop: lock file unreadable — ${(e as Error).message}`)
     process.exit(1)
   }
+}
+
+/**
+ * Poll the pid until it exits or 5s elapses. On exit, clean up the lock +
+ * socket (belt + suspenders; the daemon usually does this itself). Returns
+ * true when the gateway exited within the grace window.
+ */
+async function waitForGatewayExit(
+  pid: number,
+  lockFile: string,
+  agentId: string,
+): Promise<boolean> {
+  const start = Date.now()
+  while (Date.now() - start < 5_000) {
+    if (!isPidAlive(pid)) {
+      console.log(`gateway stopped pid=${pid}`)
+      removeIfExists(lockFile)
+      removeIfExists(join(agentPaths.agent(agentId).dir, 'gateway.sock'))
+      return true
+    }
+    await new Promise(r => setTimeout(r, 200))
+  }
+  return false
+}
+
+export async function runGatewayStop(opts: GatewayStopOpts): Promise<void> {
+  const agentId = await resolveStopAgentId(opts)
+  const lockFile = findGatewayLock(agentId)
+  if (!lockFile) {
+    console.log(`gateway not running (no lock at ${lockPath(agentId)})`)
+    return
+  }
+  const pid = readPidFromLock(lockFile)
 
   // Verify the PID is alive.
-  try {
-    process.kill(pid, 0)
-  } catch {
+  if (!isPidAlive(pid)) {
     console.log(`gateway not running (stale lock pid=${pid}); cleaning up`)
-    try {
-      unlinkSync(lockFile)
-    } catch {
-      /* ignore */
-    }
+    removeIfExists(lockFile)
     return
   }
 
@@ -93,29 +133,7 @@ export async function runGatewayStop(opts: GatewayStopOpts): Promise<void> {
     process.exit(1)
   }
 
-  const start = Date.now()
-  while (Date.now() - start < 5_000) {
-    try {
-      process.kill(pid, 0)
-    } catch {
-      console.log(`gateway stopped pid=${pid}`)
-      // Lock file is auto-removed by daemon's shutdown handler. Belt + suspenders:
-      try {
-        if (existsSync(lockFile)) unlinkSync(lockFile)
-      } catch {
-        /* ignore */
-      }
-      // Also clean up the socket file in case the daemon didn't.
-      const socketPath = join(agentPaths.agent(agentId).dir, 'gateway.sock')
-      try {
-        if (existsSync(socketPath)) unlinkSync(socketPath)
-      } catch {
-        /* ignore */
-      }
-      return
-    }
-    await new Promise(r => setTimeout(r, 200))
-  }
+  if (await waitForGatewayExit(pid, lockFile, agentId)) return
 
   console.log('gateway did not exit in 5s; sending SIGKILL')
   try {
@@ -124,10 +142,6 @@ export async function runGatewayStop(opts: GatewayStopOpts): Promise<void> {
     console.error(`lyra gateway stop: SIGKILL failed — ${(e as Error).message}`)
     process.exit(1)
   }
-  try {
-    if (existsSync(lockFile)) unlinkSync(lockFile)
-  } catch {
-    /* ignore */
-  }
+  removeIfExists(lockFile)
   console.log(`gateway force-killed pid=${pid}`)
 }

@@ -321,11 +321,7 @@ export async function buildLyraRuntime(opts: BuildRuntimeOpts): Promise<BuiltRun
   })
 
   // 3. LLM config (OpenAI-compatible) + Sui client/keypair
-  const userLlmKey = process.env.OPENAI_API_KEY ?? process.env.LYRA_LLM_API_KEY
-  // No personal key set → fall back to the hosted demo proxy so lyra runs keyless.
-  const llmApiKey = userLlmKey ?? DEMO_LLM_TOKEN
-  const llmBaseUrl = process.env.LYRA_LLM_BASE_URL ?? (userLlmKey ? undefined : DEMO_LLM_BASE_URL)
-  const llmModel = process.env.LYRA_LLM_MODEL ?? config.brain?.model ?? 'gpt-4o-mini'
+  const { llmApiKey, llmBaseUrl, llmModel, brainModelLabel } = resolveLlmConfig(config)
   // Vision routing via the OpenAI-compatible brain is a follow-up; disabled for now.
   const visionInfer: VisionInferFn | null = null
 
@@ -337,32 +333,14 @@ export async function buildLyraRuntime(opts: BuildRuntimeOpts): Promise<BuiltRun
   // Build the Sui runtime context the plugin reads via `(ctx as any).onchain`.
   // One Ed25519 agent keypair signs + pays gas; the deterministic policy
   // (off-chain mirror, re-enforced on-chain by lyra::policy) bounds it.
-  let onchain: OnchainRuntimeContext | undefined
-  if (pluginNames.includes('onchain')) {
-    const client = makeSuiClient(network)
-    const keypair = keypairFromSecret(agentSecret)
-    // Auto-resolve this agent's treasury vault (if provisioned) so DeFi tools
-    // source funds from the vault via the policy-gated vault_spend instead of the
-    // agent's own coin. Best-effort + owner-agnostic (found by the agent tag on
-    // PolicyCreated); falls back to the agent's SUI when there's no vault.
-    const vault = await resolveVaultForAgent(agentAddress, network).catch(() => null)
-    onchain = {
-      client,
-      keypair,
-      agentAddress,
-      network,
-      policy: policyFromEnv(process.env),
-      packageId: config.identity.packageId ?? process.env.LYRA_PACKAGE_ID,
-      policyObjectId:
-        config.identity.policyObjectId ?? process.env.LYRA_POLICY_OBJECT_ID ?? vault?.policyId,
-      vaultId: vault?.vaultId,
-      vaultMist: vault?.vaultMist,
-      ownerAddress: vault?.owner,
-      agentDir,
-      brainProvider: config.brain.provider,
-      brainModel: config.brain.model,
-    }
-  }
+  const onchain = await buildOnchainContext({
+    pluginNames,
+    config,
+    network,
+    agentSecret,
+    agentAddress,
+    agentDir,
+  })
 
   // Phase 12 / B6: telegram side-band ctx for sandbox mode.
   // Closes G3 (the hollow telegram block in this file). The dispatcher mirrors
@@ -477,7 +455,7 @@ export async function buildLyraRuntime(opts: BuildRuntimeOpts): Promise<BuiltRun
     workspaceRoot,
     claudeAgents: [],
     brainSupportsVision: false,
-    brainModelLabel: config.brain.model ?? config.brain.provider,
+    brainModelLabel,
     visionInfer,
     onchain,
     telegram,
@@ -615,14 +593,7 @@ export async function buildLyraRuntime(opts: BuildRuntimeOpts): Promise<BuiltRun
     tools: tools.schemas(),
     prefix: initialPrefix,
     maxOutputTokens: config.brain?.maxOutputTokens,
-    compaction:
-      config.brain?.compaction === null
-        ? null
-        : {
-            threshold: config.brain?.compaction?.threshold ?? 0.5,
-            contextWindow: config.brain?.contextWindow ?? 1_000_000,
-            keepRecent: config.brain?.compaction?.keepRecent ?? 8,
-          },
+    compaction: resolveCompaction(config),
     persist: persistConversations
       ? createFsHistoryPersist({ dir: `${agentDir}/conversations` })
       : undefined,
@@ -674,19 +645,13 @@ export async function buildLyraRuntime(opts: BuildRuntimeOpts): Promise<BuiltRun
       // `events.sizeOfKind("tui") === 0`: chat.tsx tags itself `tui` on
       // subscribe, web dashboards tag themselves `dashboard`. Only a
       // missing TUI triggers TG forwarding now.
-      if (call.name === 'clarify' && result.ok !== false) {
-        const tgNotify = telegramOperatorNotifier.current
-        if (tgNotify && events.sizeOfKind('tui') === 0) {
-          const question = extractClarifyQuestion(effectiveCall.args)
-          if (question) {
-            void tgNotify(question).catch(err => {
-              console.warn(
-                `[gateway] tg operator notify failed: ${(err as Error).message?.slice(0, 200) ?? 'unknown'}`,
-              )
-            })
-          }
-        }
-      }
+      maybeForwardClarifyToTelegram({
+        call,
+        effectiveCall,
+        result,
+        telegramOperatorNotifier,
+        events,
+      })
       // v0.21.2 R1: see chat.tsx for paired logic. Gateway sinks are SSE
       // start/end events instead of TUI state rows; orchestration shared
       // via runEscalation.
@@ -731,202 +696,16 @@ export async function buildLyraRuntime(opts: BuildRuntimeOpts): Promise<BuiltRun
   // filled BEFORE listeners start so any inbound TG message that races sees
   // the real dispatcher, not the boot-time stub.
   if (telegram && telegramDispatchSlot && telegramPendingApprovals && telegramApprovalIdFactory) {
-    const slot = telegramDispatchSlot
-    const pending = telegramPendingApprovals
-    const idFactory = telegramApprovalIdFactory
-    let approvalCallbackInstalled = false
-    const ensureApprovalCallback = (): void => {
-      if (approvalCallbackInstalled) return
-      const install = telegramApprovalBridge?.installCallbackHandler.current
-      if (!install) return
-      install((approvalId, choice, _fromUserId) => {
-        const r = pending.get(approvalId)
-        if (r) {
-          pending.delete(approvalId)
-          r(choice)
-        }
-      })
-      approvalCallbackInstalled = true
-    }
-    slot.current = async input => {
-      ensureApprovalCallback()
-      // Strip the channel envelope ONCE for preview + bypass parsing. The brain
-      // dispatch path further down still receives `input.text` with envelope
-      // intact (source/chat/user context matters for brain reasoning).
-      // v0.22.0: previously the strip lived inline in the preview build only,
-      // leaving parseBypassCommand to see the wrapped text. That text starts
-      // with `<channel ...>` not `/`, so `/yolo` `/perms` `/reset` from TG
-      // silently fell through to the brain instead of intercepting.
-      const innerText = stripTelegramChannelEnvelope(input.text)
-
-      // Publish inbound event so chat-sandbox.tsx renders a row.
-      events.publish('listener-event', {
-        kind: 'telegram-inbound',
-        chatId: input.chatId,
-        userId: input.userId,
-        username: input.username,
-        displayName: input.displayName,
-        preview: formatTelegramInboundPreview({
-          chatId: input.chatId,
-          username: input.username,
-          displayName: input.displayName,
-          text: innerText,
-        }),
-      })
-
-      // v0.20.0: bypass commands intercepted BEFORE brain.infer. Mirrors the
-      // chat-telegram.ts handleBypass flow so /yolo, /perms, /reset work in
-      // sandbox + gateway-local mode, not just the legacy in-process TUI path.
-      const bypass = parseBypassCommand(innerText)
-      if (bypass) {
-        const reply = await dispatchTelegramBypass(bypass, input.sessionKey, permission, brain)
-        return { response: reply }
-      }
-      // Build a TG-aware prompter for this turn (closes over input.chatId).
-      const previousMode = permission.getMode()
-      const previousPrompterRef = (
-        permission as unknown as {
-          prompter: (req: PermissionRequest) => Promise<PermissionDecision>
-        }
-      ).prompter
-      // Honor LYRA_TG_YOLO=1 to skip the approval dance for end-to-end test
-      // matrices and trusted-operator scenarios. The flag is read on each turn
-      // so it can be flipped without restarting.
-      const tgYolo = process.env.LYRA_TG_YOLO === '1'
-      const send = !tgYolo ? telegramApprovalBridge?.sendApproval.current : undefined
-      if (send) {
-        permission.setPrompter(async req => {
-          const approvalId = idFactory()
-          const body = `🔐 Approval needed for ${req.kind}\n\n${req.command ?? req.path ?? req.recipient ?? ''}\n\nReason: ${req.reason}`
-          console.log(
-            `[tg-approval] prompter invoked: id=${approvalId} kind=${req.kind} chat=${input.chatId}`,
-          )
-          return new Promise<PermissionDecision>(resolve => {
-            const timeoutMs = 5 * 60_000
-            const timer = setTimeout(() => {
-              if (pending.delete(approvalId)) {
-                console.log(`[tg-approval] TIMEOUT after ${timeoutMs}ms: id=${approvalId} → deny`)
-                resolve('deny')
-              }
-            }, timeoutMs)
-            pending.set(approvalId, choice => {
-              console.log(`[tg-approval] resolver fired: id=${approvalId} choice=${choice}`)
-              clearTimeout(timer)
-              resolve(
-                choice === 'once'
-                  ? 'allow-once'
-                  : choice === 'session' || choice === 'always'
-                    ? 'allow-session'
-                    : 'deny',
-              )
-            })
-            void send(input.chatId, body, approvalId)
-              .then(() => console.log(`[tg-approval] inline keyboard sent: id=${approvalId}`))
-              .catch(err => {
-                console.log(
-                  `[tg-approval] inline keyboard send FAILED: id=${approvalId} err=${(err as Error).message?.slice(0, 100)}`,
-                )
-                clearTimeout(timer)
-                if (pending.delete(approvalId)) resolve('deny')
-              })
-          })
-        })
-        // v0.22.0: respect a globally-set yolo (off) or strict mode. Previously
-        // every TG turn unconditionally forced 'prompt', clobbering whatever
-        // the operator set via /yolo or /perms strict. The finally-block at
-        // the bottom of this turn handler still restores `previousMode`, so
-        // the only effect of skipping the override here is honoring it during
-        // the turn itself.
-        if (previousMode !== 'off' && previousMode !== 'strict') {
-          permission.setMode('prompt')
-        }
-      } else if (previousMode !== 'off') {
-        permission.setMode('off')
-      }
-      try {
-        await activity.append({
-          ts: Date.now(),
-          kind: 'wake',
-          data: {
-            source: 'telegram',
-            chatId: input.chatId,
-            userId: input.userId,
-            text: input.text,
-          },
-        })
-        const turn = await brain.infer({
-          event: {
-            id: newEventId(),
-            source: 'telegram',
-            payload: { label: 'telegram-message', data: input.text },
-            ts: Date.now(),
-          },
-          channelKey: input.sessionKey,
-          // Forward per-turn tool-call observer so the listener's
-          // ProgressTracker can render a live progress message in TG. The
-          // brain emits start/end events that the listener turns into
-          // edits on a single scratch message (hermes-style).
-          onToolEvent: input.onToolEvent
-            ? ev => {
-                input.onToolEvent?.({
-                  kind: ev.kind,
-                  tool: ev.tool,
-                  callId: ev.callId,
-                  argsPreview: ev.argsPreview,
-                  ok: ev.ok,
-                })
-              }
-            : undefined,
-          onCompactionEvent: ev => {
-            events.publish('context-compacted', ev)
-            void activity
-              .append({ ts: Date.now(), kind: 'context-compacted', data: ev })
-              .catch(() => {})
-          },
-        })
-        await activity.append({
-          ts: Date.now(),
-          kind: 'brain-response',
-          data: {
-            content: turn.content,
-            toolCalls: turn.toolCalls.length,
-            finishReason: turn.finishReason,
-            usage: turn.usage,
-            source: 'telegram',
-          },
-        })
-        const response = (turn.content ?? '').trim()
-        events.publish('listener-event', {
-          kind: 'telegram-outbound',
-          chatId: input.chatId,
-          length: response.length,
-        })
-        // Fire-and-forget memory sync (Walrus, when wired). Finality can take
-        // time; awaiting it would block the dispatch lock and stack up
-        // queued telegram messages behind a single in-flight turn. Surfacing
-        // the resulting tx via the listener-event channel keeps observability
-        // for downstream consumers without blocking the reply.
-        void sync
-          .flushTurn()
-          .then(r => {
-            if (r.txHash) {
-              events.publish('listener-event', {
-                kind: 'sync-flush',
-                source: 'telegram',
-                chatId: input.chatId,
-                txHash: r.txHash,
-              })
-            }
-          })
-          .catch(() => {
-            /* swallow — sync errors should never block reply */
-          })
-        return { response: response.length === 0 ? '(no reply)' : response }
-      } finally {
-        permission.setMode(previousMode)
-        if (send && previousPrompterRef) permission.setPrompter(previousPrompterRef)
-      }
-    }
+    telegramDispatchSlot.current = makeTelegramDispatcher({
+      pending: telegramPendingApprovals,
+      idFactory: telegramApprovalIdFactory,
+      bridge: telegramApprovalBridge,
+      permission,
+      brain,
+      activity,
+      events,
+      sync,
+    })
   }
 
   // 7. Start gateway listeners in the background. Don't await; catch-up can
@@ -1086,5 +865,352 @@ async function dispatchTelegramBypass(
     case '/background':
     case '/restart':
       return `${bypass.command} is reserved for a future bundle.`
+  }
+}
+
+/**
+ * Resolve the OpenAI-compatible LLM settings from env + config. No personal
+ * key set → fall back to the hosted demo proxy so lyra runs keyless.
+ */
+function resolveLlmConfig(config: RuntimeConfig): {
+  llmApiKey: string
+  llmBaseUrl: string | undefined
+  llmModel: string
+  brainModelLabel: string
+} {
+  const userLlmKey = process.env.OPENAI_API_KEY ?? process.env.LYRA_LLM_API_KEY
+  const llmApiKey = userLlmKey ?? DEMO_LLM_TOKEN
+  const llmBaseUrl = process.env.LYRA_LLM_BASE_URL ?? (userLlmKey ? undefined : DEMO_LLM_BASE_URL)
+  const llmModel = process.env.LYRA_LLM_MODEL ?? config.brain?.model ?? 'gpt-4o-mini'
+  const brainModelLabel = config.brain.model ?? config.brain.provider
+  return { llmApiKey, llmBaseUrl, llmModel, brainModelLabel }
+}
+
+/**
+ * Mirror of the inline brain-compaction default resolution. Returns null when
+ * compaction is explicitly disabled (`config.brain.compaction === null`).
+ */
+function resolveCompaction(
+  config: RuntimeConfig,
+): { threshold: number; contextWindow: number; keepRecent: number } | null {
+  if (config.brain?.compaction === null) return null
+  return {
+    threshold: config.brain?.compaction?.threshold ?? 0.5,
+    contextWindow: config.brain?.contextWindow ?? 1_000_000,
+    keepRecent: config.brain?.compaction?.keepRecent ?? 8,
+  }
+}
+
+/**
+ * Build the Sui runtime context the onchain plugin reads via `(ctx).onchain`.
+ * One Ed25519 agent keypair signs + pays gas; the deterministic policy bounds
+ * it. Auto-resolves the agent's treasury vault (best-effort) so DeFi tools
+ * source funds from the vault via policy-gated vault_spend; falls back to the
+ * agent's own SUI when there's no vault. Returns undefined when the onchain
+ * plugin isn't enabled.
+ */
+async function buildOnchainContext(params: {
+  pluginNames: string[]
+  config: RuntimeConfig
+  network: RuntimeConfig['network']
+  agentSecret: string
+  agentAddress: string
+  agentDir: string
+}): Promise<OnchainRuntimeContext | undefined> {
+  const { pluginNames, config, network, agentSecret, agentAddress, agentDir } = params
+  if (!pluginNames.includes('onchain')) return undefined
+  const client = makeSuiClient(network)
+  const keypair = keypairFromSecret(agentSecret)
+  const vault = await resolveVaultForAgent(agentAddress, network).catch(() => null)
+  return {
+    client,
+    keypair,
+    agentAddress,
+    network,
+    policy: policyFromEnv(process.env),
+    packageId: config.identity.packageId ?? process.env.LYRA_PACKAGE_ID,
+    policyObjectId:
+      config.identity.policyObjectId ?? process.env.LYRA_POLICY_OBJECT_ID ?? vault?.policyId,
+    vaultId: vault?.vaultId,
+    vaultMist: vault?.vaultMist,
+    ownerAddress: vault?.owner,
+    agentDir,
+    brainProvider: config.brain.provider,
+    brainModel: config.brain.model,
+  }
+}
+
+/**
+ * v0.24.12+v0.24.14: forward clarify questions to Telegram operators when no
+ * live TUI is connected. Extracted from the brain's onToolCall so its deep
+ * nesting doesn't inflate that callback's cognitive complexity. Only a missing
+ * TUI (`events.sizeOfKind('tui') === 0`) triggers TG forwarding — web
+ * dashboards tag themselves `dashboard`, so a persistent /console connection
+ * no longer suppresses it.
+ */
+function maybeForwardClarifyToTelegram(params: {
+  call: { name: string }
+  effectiveCall: { args: unknown }
+  result: { ok?: boolean }
+  telegramOperatorNotifier: { current: ((text: string) => Promise<void>) | null }
+  events: EventHub
+}): void {
+  const { call, effectiveCall, result, telegramOperatorNotifier, events } = params
+  if (call.name !== 'clarify' || result.ok === false) return
+  const tgNotify = telegramOperatorNotifier.current
+  if (!tgNotify || events.sizeOfKind('tui') !== 0) return
+  const question = extractClarifyQuestion(effectiveCall.args)
+  if (!question) return
+  void tgNotify(question).catch(err => {
+    console.warn(
+      `[gateway] tg operator notify failed: ${(err as Error).message?.slice(0, 200) ?? 'unknown'}`,
+    )
+  })
+}
+
+/**
+ * Map a Telegram inline-keyboard approval choice to a PermissionDecision.
+ * Extracted so the resolver arrow carries no nested ternary.
+ */
+function mapApprovalChoice(choice: ApprovalChoiceKind): PermissionDecision {
+  return choice === 'once'
+    ? 'allow-once'
+    : choice === 'session' || choice === 'always'
+      ? 'allow-session'
+      : 'deny'
+}
+
+/**
+ * Build the per-turn approval prompter used when Telegram inline-keyboard
+ * approvals are active. Hoisted to module scope so its Promise/timeout/resolver
+ * nesting doesn't inflate the dispatcher's cognitive complexity.
+ */
+function buildTelegramTurnPrompter(params: {
+  send: (chatId: number, text: string, approvalId: string) => Promise<void>
+  pending: Map<string, (choice: ApprovalChoiceKind) => void>
+  idFactory: () => string
+  chatId: number
+}): (req: PermissionRequest) => Promise<PermissionDecision> {
+  const { send, pending, idFactory, chatId } = params
+  return async req => {
+    const approvalId = idFactory()
+    const body = `🔐 Approval needed for ${req.kind}\n\n${req.command ?? req.path ?? req.recipient ?? ''}\n\nReason: ${req.reason}`
+    console.log(`[tg-approval] prompter invoked: id=${approvalId} kind=${req.kind} chat=${chatId}`)
+    return new Promise<PermissionDecision>(resolve => {
+      const timeoutMs = 5 * 60_000
+      const timer = setTimeout(() => {
+        if (pending.delete(approvalId)) {
+          console.log(`[tg-approval] TIMEOUT after ${timeoutMs}ms: id=${approvalId} → deny`)
+          resolve('deny')
+        }
+      }, timeoutMs)
+      pending.set(approvalId, choice => {
+        console.log(`[tg-approval] resolver fired: id=${approvalId} choice=${choice}`)
+        clearTimeout(timer)
+        resolve(mapApprovalChoice(choice))
+      })
+      void send(chatId, body, approvalId)
+        .then(() => console.log(`[tg-approval] inline keyboard sent: id=${approvalId}`))
+        .catch(err => {
+          console.log(
+            `[tg-approval] inline keyboard send FAILED: id=${approvalId} err=${(err as Error).message?.slice(0, 100)}`,
+          )
+          clearTimeout(timer)
+          if (pending.delete(approvalId)) resolve('deny')
+        })
+    })
+  }
+}
+
+/**
+ * Configure the permission service for a single Telegram turn and return a
+ * restore fn for the caller's finally block. When inline-keyboard approvals
+ * are available (`send`), install the TG prompter and (unless the operator has
+ * globally set yolo/strict) force 'prompt' mode; otherwise force 'off'.
+ * LYRA_TG_YOLO=1 skips the approval dance and is read per-turn so it can be
+ * flipped without restarting.
+ */
+function beginTelegramTurnPermission(params: {
+  permission: PermissionService
+  bridge: TelegramApprovalBridge | null
+  pending: Map<string, (choice: ApprovalChoiceKind) => void>
+  idFactory: () => string
+  chatId: number
+}): () => void {
+  const { permission, bridge, pending, idFactory, chatId } = params
+  const previousMode = permission.getMode()
+  const previousPrompterRef = (
+    permission as unknown as {
+      prompter: (req: PermissionRequest) => Promise<PermissionDecision>
+    }
+  ).prompter
+  const tgYolo = process.env.LYRA_TG_YOLO === '1'
+  const send = !tgYolo ? bridge?.sendApproval.current : undefined
+  if (send) {
+    permission.setPrompter(buildTelegramTurnPrompter({ send, pending, idFactory, chatId }))
+    if (previousMode !== 'off' && previousMode !== 'strict') {
+      permission.setMode('prompt')
+    }
+  } else if (previousMode !== 'off') {
+    permission.setMode('off')
+  }
+  return () => {
+    permission.setMode(previousMode)
+    if (send && previousPrompterRef) permission.setPrompter(previousPrompterRef)
+  }
+}
+
+/**
+ * Build the sandbox-mode Telegram dispatcher (mirrors chat-telegram local
+ * mode): forward inbound DMs through the brain with source='telegram', publish
+ * events to the EventHub, intercept bypass commands before brain.infer, and
+ * fire-and-forget per-turn sync. The returned handler is stored in the
+ * dispatch slot BEFORE listeners start so any racing inbound TG message sees
+ * the real dispatcher, not the boot-time stub.
+ */
+function makeTelegramDispatcher(deps: {
+  pending: Map<string, (choice: ApprovalChoiceKind) => void>
+  idFactory: () => string
+  bridge: TelegramApprovalBridge | null
+  permission: PermissionService
+  brain: OpenAIBrain
+  activity: ActivityLog
+  events: EventHub
+  sync: { flushTurn: () => Promise<{ txHash: string | null; changedSlots: string[] }> }
+}): (input: TelegramDispatchInput) => Promise<TelegramDispatchResult> {
+  const { pending, idFactory, bridge, permission, brain, activity, events, sync } = deps
+  let approvalCallbackInstalled = false
+  const ensureApprovalCallback = (): void => {
+    if (approvalCallbackInstalled) return
+    const install = bridge?.installCallbackHandler.current
+    if (!install) return
+    install((approvalId, choice, _fromUserId) => {
+      const r = pending.get(approvalId)
+      if (r) {
+        pending.delete(approvalId)
+        r(choice)
+      }
+    })
+    approvalCallbackInstalled = true
+  }
+
+  return async input => {
+    ensureApprovalCallback()
+    // Strip the channel envelope ONCE for preview + bypass parsing. The brain
+    // dispatch path further down still receives `input.text` with envelope
+    // intact (source/chat/user context matters for brain reasoning). Without
+    // the strip, parseBypassCommand sees `<channel ...>` not `/`, so `/yolo`
+    // `/perms` `/reset` from TG silently fall through to the brain.
+    const innerText = stripTelegramChannelEnvelope(input.text)
+
+    // Publish inbound event so chat-sandbox.tsx renders a row.
+    events.publish('listener-event', {
+      kind: 'telegram-inbound',
+      chatId: input.chatId,
+      userId: input.userId,
+      username: input.username,
+      displayName: input.displayName,
+      preview: formatTelegramInboundPreview({
+        chatId: input.chatId,
+        username: input.username,
+        displayName: input.displayName,
+        text: innerText,
+      }),
+    })
+
+    // v0.20.0: bypass commands intercepted BEFORE brain.infer so /yolo, /perms,
+    // /reset work in sandbox + gateway-local mode, not just the legacy TUI path.
+    const bypass = parseBypassCommand(innerText)
+    if (bypass) {
+      const reply = await dispatchTelegramBypass(bypass, input.sessionKey, permission, brain)
+      return { response: reply }
+    }
+    // Configure a TG-aware prompter for this turn (closes over input.chatId)
+    // and capture a restore fn for the finally block.
+    const restorePermission = beginTelegramTurnPermission({
+      permission,
+      bridge,
+      pending,
+      idFactory,
+      chatId: input.chatId,
+    })
+    try {
+      await activity.append({
+        ts: Date.now(),
+        kind: 'wake',
+        data: {
+          source: 'telegram',
+          chatId: input.chatId,
+          userId: input.userId,
+          text: input.text,
+        },
+      })
+      const turn = await brain.infer({
+        event: {
+          id: newEventId(),
+          source: 'telegram',
+          payload: { label: 'telegram-message', data: input.text },
+          ts: Date.now(),
+        },
+        channelKey: input.sessionKey,
+        // Forward per-turn tool-call observer so the listener's ProgressTracker
+        // can render a live progress message in TG.
+        onToolEvent: input.onToolEvent
+          ? ev => {
+              input.onToolEvent?.({
+                kind: ev.kind,
+                tool: ev.tool,
+                callId: ev.callId,
+                argsPreview: ev.argsPreview,
+                ok: ev.ok,
+              })
+            }
+          : undefined,
+        onCompactionEvent: ev => {
+          events.publish('context-compacted', ev)
+          void activity
+            .append({ ts: Date.now(), kind: 'context-compacted', data: ev })
+            .catch(() => {})
+        },
+      })
+      await activity.append({
+        ts: Date.now(),
+        kind: 'brain-response',
+        data: {
+          content: turn.content,
+          toolCalls: turn.toolCalls.length,
+          finishReason: turn.finishReason,
+          usage: turn.usage,
+          source: 'telegram',
+        },
+      })
+      const response = (turn.content ?? '').trim()
+      events.publish('listener-event', {
+        kind: 'telegram-outbound',
+        chatId: input.chatId,
+        length: response.length,
+      })
+      // Fire-and-forget memory sync (Walrus, when wired). Awaiting it would
+      // block the dispatch lock and stack up queued telegram messages behind a
+      // single in-flight turn. Surface the tx via the listener-event channel.
+      void sync
+        .flushTurn()
+        .then(r => {
+          if (r.txHash) {
+            events.publish('listener-event', {
+              kind: 'sync-flush',
+              source: 'telegram',
+              chatId: input.chatId,
+              txHash: r.txHash,
+            })
+          }
+        })
+        .catch(() => {
+          /* swallow — sync errors should never block reply */
+        })
+      return { response: response.length === 0 ? '(no reply)' : response }
+    } finally {
+      restorePermission()
+    }
   }
 }

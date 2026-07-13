@@ -63,9 +63,7 @@ export function detectFetchEscalation(call: ToolCall, result: ToolResult): Fetch
     return { needed: false }
 
   const data = result.data as Record<string, unknown> | undefined
-  const finalUrl = data && typeof data.final_url === 'string' ? data.final_url : null
-  const argUrl = extractUrlFromCallArgs(call)
-  const url = finalUrl && finalUrl.length > 0 ? finalUrl : argUrl
+  const url = resolveEscalationUrl(call, data)
   if (!url) return { needed: false }
 
   if (result.ok && data?.blocked === true) {
@@ -78,6 +76,19 @@ export function detectFetchEscalation(call: ToolCall, result: ToolResult): Fetch
     return synthesize(call, url, classifyError(error))
   }
   return { needed: false }
+}
+
+/**
+ * Pick the URL to escalate to: prefer `data.final_url` (post-redirect canonical
+ * URL), then the original `call.args.url`. Returns null when neither is usable.
+ */
+function resolveEscalationUrl(
+  call: ToolCall,
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const finalUrl = data && typeof data.final_url === 'string' ? data.final_url : null
+  const argUrl = extractUrlFromCallArgs(call)
+  return finalUrl && finalUrl.length > 0 ? finalUrl : argUrl
 }
 
 function synthesize(call: ToolCall, url: string, reason: string): FetchEscalation {
