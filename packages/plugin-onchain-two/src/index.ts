@@ -12,6 +12,10 @@ import { makeBridgeRoutes } from './bridge'
 export { makeBridgeRoutes } from './bridge'
 // Agent-facing deposit tools (bound to an owner + a store): open + track a deposit.
 export { makeBridgeDeposit, makeBridgeStatus } from './bridge-tools'
+// The real CCTP executor (Wormhole SDK) that plugs into the DepositExecutors interface
+// — reconstructs the user's burn, drives attestation → Sui redeem. Node-only runtime.
+export { makeCctpExecutor, type CctpExecutorConfig } from './cctp-executor'
+export { whChainName, type CctpNetwork } from './cctp-chains'
 export { makeV2Context, type V2Context } from './context'
 // Cross-chain deposit orchestration (pure, chain-agnostic): the state machine +
 // pending-transfer store that drive a deposit from source-burn → attestation →
