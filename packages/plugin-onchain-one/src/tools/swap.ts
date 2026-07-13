@@ -10,19 +10,89 @@
  */
 
 import { MetaAg } from '@7kprotocol/sdk-ts'
-import { Transaction, coinWithBalance } from '@mysten/sui/transactions'
+import {
+  Transaction,
+  type TransactionObjectArgument,
+  coinWithBalance,
+} from '@mysten/sui/transactions'
 import type { ToolDef } from 'lyra-core'
 import { z } from 'zod'
 import { type CoinInfo, decimalToBase, resolveCoin } from '../coins'
 import { checkMinimum } from '../minimums'
-import { evaluatePolicy } from '../policy'
+import { evaluatePolicy, normalizeCoinType } from '../policy'
 import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
-import { fundSui } from '../vault-fund'
+import { canFundFromVault, fundSui } from '../vault-fund'
 
 const SUI_TYPE = '0x2::sui::SUI'
+const CLOCK = '0x6'
 /** Default max slippage when neither the call nor the policy specifies one. */
 const DEFAULT_SLIPPAGE_BPS = 50 // 0.5%
+
+const enc = (tx: Transaction, s: string) =>
+  tx.pure.vector('u8', Array.from(new TextEncoder().encode(s)))
+
+/**
+ * Source the swap input coin and return a `sink` for the output. Best-practice
+ * (zero standing exposure) when a SUI input has a wired `Vault<SUI>` AND the owner
+ * has a `Vault<outputType>`: `vault_borrow` the SUI (a FlashSpend hot potato) and
+ * `vault_settle` the swapped output back into that vault — funds never leave the
+ * treasury. Otherwise fall back to funding from the vault/agent SUI and sending the
+ * output to the agent.
+ */
+function sourceAndSink(
+  tx: Transaction,
+  ctx: OnchainRuntimeContext,
+  from: CoinInfo,
+  to: CoinInfo,
+  amountMist: bigint,
+  memo: string,
+): { coinIn: TransactionObjectArgument; sink: (coinOut: TransactionObjectArgument) => void } {
+  const outVaultId =
+    from.type === SUI_TYPE ? ctx.assetVaultIds?.[normalizeCoinType(to.type)] : undefined
+  if (
+    outVaultId &&
+    ctx.vaultId &&
+    ctx.policyObjectId &&
+    ctx.packageId &&
+    canFundFromVault(ctx, amountMist)
+  ) {
+    const [coinIn, flash] = tx.moveCall({
+      target: `${ctx.packageId}::vault::vault_borrow`,
+      typeArguments: [SUI_TYPE],
+      arguments: [
+        tx.object(ctx.vaultId),
+        tx.object(ctx.policyObjectId),
+        tx.pure.u64(amountMist),
+        tx.pure.address('0x0'),
+        enc(tx, 'swap'),
+        enc(tx, memo),
+        tx.object(CLOCK),
+      ],
+    })
+    const pkg = ctx.packageId
+    return {
+      coinIn: coinIn as TransactionObjectArgument,
+      sink: coinOut => {
+        tx.moveCall({
+          target: `${pkg}::vault::vault_settle`,
+          typeArguments: [to.type],
+          arguments: [tx.object(outVaultId), flash as TransactionObjectArgument, coinOut],
+        })
+      },
+    }
+  }
+  const coinIn =
+    from.type === SUI_TYPE
+      ? fundSui(tx, ctx, amountMist, { protocol: '0x0', kind: 'swap', memo })
+      : coinWithBalance({ type: from.type, balance: amountMist })
+  return {
+    coinIn: coinIn as TransactionObjectArgument,
+    sink: coinOut => {
+      tx.transferObjects([coinOut], ctx.agentAddress)
+    },
+  }
+}
 
 const Schema = z.object({
   from: z.string().min(1).describe('Input coin: symbol (sui, usdc, deep, wal) or full coin type.'),
@@ -128,19 +198,16 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
           tx.setSender(me)
           tx.setGasBudget(150_000_000)
           try {
-            // SUI input is sourced from the treasury vault (policy-enforced) when
-            // wired; non-SUI input comes from the agent's own balance (the vault
-            // is SUI-typed). The swapped output goes to the agent.
-            const coinIn =
-              from.type === SUI_TYPE
-                ? fundSui(tx, ctx, amountIn, {
-                    protocol: '0x0',
-                    kind: 'swap',
-                    memo: `swap to ${args.to}`,
-                  })
-                : coinWithBalance({ type: from.type, balance: amountIn })
+            const { coinIn, sink } = sourceAndSink(
+              tx,
+              ctx,
+              from,
+              to,
+              amountIn,
+              `swap to ${args.to}`,
+            )
             const coinOut = await ag.swap({ quote: q, signer: me, tx, coinIn: coinIn as never })
-            tx.transferObjects([coinOut as never], me)
+            sink(coinOut as TransactionObjectArgument)
             const sim = await simulate(ctx.client, tx, me)
             if (sim.ok) {
               used = {

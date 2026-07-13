@@ -32,6 +32,15 @@ export interface OnchainRuntimeContext {
    */
   vaultId?: string
   /**
+   * Additional treasury vaults keyed by NORMALIZED coin type (`normalizeCoinType`)
+   * → `Vault<T>` object id, for multi-asset flows. E.g. a `Vault<USDC>` so a swap
+   * can `vault_borrow` its SUI input and `vault_settle` the swapped output back
+   * into the treasury (zero standing exposure) instead of handing the output to the
+   * agent. Populated once the owner provisions the extra asset vault; absent ⇒ the
+   * swap falls back to funding from the agent's SUI.
+   */
+  assetVaultIds?: Record<string, string>
+  /**
    * The vault/policy owner address. Audit `ActionReceipt`s from `vault_spend` are
    * sent here (falls back to the agent when unset). The owner also receives any
    * funds swept back to the treasury.
