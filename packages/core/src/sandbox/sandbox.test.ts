@@ -107,7 +107,7 @@ describe('buildSeatbeltProfile', () => {
   // The actual exploit risk is near-zero (operators don't trick themselves) but
   // the cost of a clean test is one regex check per scenario.
   test('escapes pathological inputs cleanly: nested quotes, sbpl operators, unicode', () => {
-    const cases: Array<[string, string]> = [
+    const cases: [string, string][] = [
       // Bare close-paren that could escape an SBPL form (must remain inside the literal)
       ['/tmp/test)', '/tmp/test)'],
       // Embedded "(allow file-write*" attempt to inject a new rule

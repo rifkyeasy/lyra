@@ -86,7 +86,7 @@ export function createFsHistoryPersist(opts: FsHistoryPersistOpts): HistoryPersi
       if (!existsSync(dir)) return out
       const entries = readdirSync(dir, { withFileTypes: true })
       for (const e of entries) {
-        if (!e.isFile() || !e.name.endsWith('.jsonl')) continue
+        if (!(e.isFile() && e.name.endsWith('.jsonl'))) continue
         const path = join(dir, e.name)
         let raw: string
         try {

@@ -176,7 +176,7 @@ async function main(): Promise<void> {
     identity: agentId,
     ttl: 5 * 60,
   })
-  if (!lockResult.acquired || !lockResult.handle) {
+  if (!(lockResult.acquired && lockResult.handle)) {
     die(`gateway already running pid=${lockResult.existing?.pid ?? '?'}`)
   }
   const lockHandle = lockResult.handle

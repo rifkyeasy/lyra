@@ -200,7 +200,7 @@ export class RealRuntime implements RuntimeAdapter {
   async #fireBackgroundFlush(): Promise<void> {
     const r = this.#runtime
     const events = this.#events
-    if (!r || !events) return
+    if (!(r && events)) return
     if (this.#pendingFlush) {
       // Coalesce: a flush is already in flight, the next turn's writes
       // will ride on its (or the next) cycle.

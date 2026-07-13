@@ -60,6 +60,14 @@ export interface CatalogEntry {
   make: Make
   /** Exposed in the browser console's inline-execute tool set. */
   web: boolean
+  /**
+   * Read-only: the tool moves NO value and needs no approval/permission gate.
+   * SECURITY: this is fail-closed — a tool is treated as value-moving (gated by
+   * the session permission mode + the deterministic approval floor) UNLESS it is
+   * explicitly marked `read: true`. So a newly-added on-chain tool is gated by
+   * default; you must consciously opt out to make it ungated.
+   */
+  read?: boolean
   /** One-line capability blurb for the agent guidance (optional). */
   blurb?: string
 }
@@ -68,53 +76,61 @@ export const TOOLS: CatalogEntry[] = [
   // Reads / discovery
   {
     name: 'account.info',
+    read: true,
     make: makeAccountInfo,
     web: false,
     blurb: 'account.info — the agent address, network, balance, and active policy.',
   },
   {
     name: 'sui.balance',
+    read: true,
     make: makeSuiBalance,
     web: false,
     blurb: 'sui.balance — SUI + coin balances for the agent or any address.',
   },
   {
     name: 'policy.show',
+    read: true,
     make: makePolicyShow,
     web: false,
     blurb: 'policy.show — the active fund-control policy (caps, allowlists, expiry).',
   },
   {
     name: 'protocols.list',
+    read: true,
     make: makeProtocolsList,
     web: true,
     blurb: 'protocols.list — which protocols Lyra can READ vs EXECUTE on.',
   },
   {
     name: 'defi.yields',
+    read: true,
     make: makeDefiYields,
     web: true,
     blurb: 'defi.yields — best yields across Sui (DefiLlama), tagged executable / executeWith.',
   },
   {
     name: 'deepbook.markets',
+    read: true,
     make: makeDeepbookMarkets,
     web: true,
     blurb: 'deepbook.markets — DeepBook spot mid prices.',
   },
   {
     name: 'cetus.quote',
+    read: true,
     make: makeCetusQuote,
     web: false,
     blurb: 'cetus.quote — best swap route/price across DEXes (read-only aggregator).',
   },
-  { name: 'scallop.markets', make: makeScallopMarkets, web: true },
-  { name: 'scallop.position', make: makeScallopPosition, web: true },
-  { name: 'navi.markets', make: makeNaviMarkets, web: true },
-  { name: 'navi.position', make: makeNaviPosition, web: true },
-  { name: 'suilend.position', make: makeSuilendPosition, web: true },
+  { name: 'scallop.markets', make: makeScallopMarkets, web: true, read: true },
+  { name: 'scallop.position', make: makeScallopPosition, web: true, read: true },
+  { name: 'navi.markets', make: makeNaviMarkets, web: true, read: true },
+  { name: 'navi.position', make: makeNaviPosition, web: true, read: true },
+  { name: 'suilend.position', make: makeSuilendPosition, web: true, read: true },
   {
     name: 'walrus.staking',
+    read: true,
     make: makeWalrusStaking,
     web: true,
     blurb:
@@ -194,6 +210,20 @@ export const TOOLS: CatalogEntry[] = [
 
 /** Tool names exposed in the browser console's inline-execute set (derived). */
 export const WEB_TOOL_NAMES: string[] = TOOLS.filter(t => t.web).map(t => t.name)
+
+/**
+ * On-chain tools that move value / write state — everything NOT marked `read`
+ * (fail-closed). The permission-mode gate and the deterministic approval floor
+ * key off this set so EVERY such tool is covered, not a hand-maintained list.
+ */
+export const VALUE_MOVING_TOOL_NAMES: Set<string> = new Set(
+  TOOLS.filter(t => !t.read).map(t => t.name),
+)
+
+/** True when `name` is an on-chain tool that moves value / writes state. */
+export function isValueMovingTool(name: string): boolean {
+  return VALUE_MOVING_TOOL_NAMES.has(name)
+}
 
 /** The capability inventory for the agent guidance (derived from the catalog). */
 export function capabilitySummary(): string {

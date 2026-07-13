@@ -37,7 +37,7 @@ import type {
  * Probe order for bwrap binary. Most distros put it at /usr/bin/bwrap; some
  * via pkg-managed systems at /usr/local/bin. First existing path wins.
  */
-const BWRAP_CANDIDATES: ReadonlyArray<string> = ['/usr/bin/bwrap', '/usr/local/bin/bwrap']
+const BWRAP_CANDIDATES: readonly string[] = ['/usr/bin/bwrap', '/usr/local/bin/bwrap']
 
 function findBwrap(): string | null {
   for (const path of BWRAP_CANDIDATES) {

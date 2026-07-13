@@ -181,7 +181,7 @@ export async function runEscalation(
   originalResult: ToolResult,
   deps: EscalationDeps,
 ): Promise<ToolResult> {
-  if (!escalation.needed || !escalation.escalatedCall) return originalResult
+  if (!(escalation.needed && escalation.escalatedCall)) return originalResult
   const synthCall = escalation.escalatedCall
   const startedAt = Date.now()
   deps.onStart(synthCall)

@@ -217,11 +217,7 @@ export function createGatewayServer(deps: ServerDeps): http.Server {
         }
 
         if (
-          !body?.envelope ||
-          !body.operatorAddress ||
-          !body.iNFTRef ||
-          !body.config ||
-          !body.signature
+          !(body?.envelope && body.operatorAddress && body.iNFTRef && body.config && body.signature)
         ) {
           return send(res, 400, { error: 'missing-fields' })
         }

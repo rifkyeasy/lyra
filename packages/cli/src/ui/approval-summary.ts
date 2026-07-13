@@ -15,7 +15,7 @@ export function summarizeApprovalSubject(req: PermissionRequest): string {
       return `send ${amt} ${tokenLabel} to ${shortAddr(req.recipient)}`
     }
     case 'chain.swap':
-      if (!amt && !tok) return 'swap'
+      if (!(amt || tok)) return 'swap'
       return `swap ${amt} ${tok}`.trim()
     case 'chain.write': {
       const valuePart = amt ? ` (value: ${amt})` : ''

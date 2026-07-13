@@ -32,7 +32,7 @@ export class StubRuntime implements RuntimeAdapter {
   }
 
   async runChatTurn(input: ChatTurnInput): Promise<ChatTurnResult> {
-    if (!this.#events || !this.#ready) throw new Error('runtime not ready')
+    if (!(this.#events && this.#ready)) throw new Error('runtime not ready')
     const start = Date.now()
     this.#events.publish('turn-start', { ts: input.ts, len: input.message.length })
 

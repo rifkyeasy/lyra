@@ -14,8 +14,8 @@ import { deriveAgentAddress } from './derive'
 // all shipped together), so every module shares one id today. These stay separate
 // constants so a FUTURE upgrade can again split the LATEST (moveCall) id from a
 // module's DEFINING id without touching call sites.
-const ORIGINAL_PKG = '0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617'
-const VAULT_PKG = '0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617'
+const ORIGINAL_PKG = '0x8b2412e9a5d931cafa533d29daf8c91edacda28d6a689cbdecacf2a092380e14'
+const VAULT_PKG = '0x8b2412e9a5d931cafa533d29daf8c91edacda28d6a689cbdecacf2a092380e14'
 
 export interface OwnerVault {
   policyId: string
@@ -59,7 +59,7 @@ export async function resolveVaultForAgent(
     if (f?.agent !== agentAddress) continue
     const policyId = f.policy_id as string | undefined
     const owner = f.owner as string | undefined
-    if (!policyId || !owner) continue
+    if (!(policyId && owner)) continue
     const pol = await client
       .getObject({ id: policyId, options: { showContent: true } })
       .catch(() => null)

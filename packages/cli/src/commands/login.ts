@@ -89,7 +89,7 @@ export async function deviceLink(deps: LoginDeps): Promise<LoginResult> {
     throw new Error(`login/start failed (HTTP ${startRes.status}) at ${base}`)
   }
   const start = (await startRes.json()) as LoginStart
-  if (!start?.code || !start?.pollToken) {
+  if (!(start?.code && start?.pollToken)) {
     throw new Error('login/start returned an unexpected response')
   }
 

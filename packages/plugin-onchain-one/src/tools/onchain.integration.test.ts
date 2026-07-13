@@ -114,7 +114,7 @@ describe.skipIf(!RUN)('mainnet dry-run integration', () => {
     ])
     const nodeId = state.committee.members[0]?.node_id
     const walCoin = coins.data[0]?.coinObjectId
-    if (!nodeId || !walCoin) throw new Error('no committee node or WAL coin available')
+    if (!(nodeId && walCoin)) throw new Error('no committee node or WAL coin available')
     const tx = new Transaction()
     tx.setSender(ctx.agentAddress)
     const [toStake] = tx.splitCoins(tx.object(walCoin), [1_000_000_000n]) // 1 WAL (Walrus min)

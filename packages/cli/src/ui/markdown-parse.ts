@@ -95,7 +95,7 @@ function detectTable(lines: string[], startIdx: number): { rows: string[][]; end
   if (header === undefined) return null
   if (!/^\s*\|.+\|?\s*$/.test(header)) return null
   const sep = lines[startIdx + 1]
-  if (!sep || !TABLE_SEPARATOR_RE.test(sep)) return null
+  if (!(sep && TABLE_SEPARATOR_RE.test(sep))) return null
 
   const rows: string[][] = [parseTableRow(header)]
   let i = startIdx + 2

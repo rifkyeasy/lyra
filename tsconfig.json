@@ -2,10 +2,26 @@
   "extends": "./tsconfig.base.json",
   "files": [],
   "references": [
-    { "path": "./packages/core" },
-    { "path": "./packages/cli" },
-    { "path": "./packages/gateway" },
-    { "path": "./packages/plugin-onchain" },
-    { "path": "./packages/plugin-system" }
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/cli"
+    },
+    {
+      "path": "./packages/gateway"
+    },
+    {
+      "path": "./packages/plugin-system"
+    },
+    {
+      "path": "./packages/plugin-onchain-one"
+    },
+    {
+      "path": "./packages/plugin-onchain-two"
+    },
+    {
+      "path": "./packages/plugin-onchain"
+    }
   ]
 }

@@ -43,7 +43,7 @@ export function makeTodo(): ToolDef<z.infer<typeof TodoSchema>> {
         return { ok: true, data: { id, tasks } }
       }
       if (args.action === 'update') {
-        if (!args.id || !args.status) {
+        if (!(args.id && args.status)) {
           return { ok: false, error: 'id + status required for update' }
         }
         const idx = tasks.findIndex(t => t.id === args.id)

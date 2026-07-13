@@ -154,7 +154,7 @@ export interface DockerBackendOpts extends SandboxBackendOpts {
  * gives the container a real PID 1 (tini) that reaps zombies — without it,
  * background tools that orphan children leak file descriptors.
  */
-const HARDENING_ARGS: ReadonlyArray<string> = [
+const HARDENING_ARGS: readonly string[] = [
   '--init',
   '--cap-drop',
   'ALL',

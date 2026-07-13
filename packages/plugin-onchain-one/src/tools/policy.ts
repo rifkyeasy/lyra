@@ -120,6 +120,10 @@ export function makePolicyCreate(ctx: OnchainRuntimeContext): ToolDef<CreateArgs
           return { ok: false, error: 'invalid budget or per-tx amount' }
         }
         const expiryMs = args.expiryMinutes ? Date.now() + args.expiryMinutes * 60_000 : 0
+        // Rolling blast-radius window: default 1h, allowing ~10 max-per-tx actions
+        // per window (never above the lifetime budget). Bounds a single burst.
+        const windowMs = 3_600_000n
+        const windowBudget = maxPerTx * 10n < budget ? maxPerTx * 10n : budget
         const tx = new Transaction()
         tx.moveCall({
           target: `${ctx.packageId}::policy::create_policy`,
@@ -127,6 +131,8 @@ export function makePolicyCreate(ctx: OnchainRuntimeContext): ToolDef<CreateArgs
             tx.pure.address(ctx.agentAddress),
             tx.pure.u64(budget),
             tx.pure.u64(maxPerTx),
+            tx.pure.u64(windowMs),
+            tx.pure.u64(windowBudget),
             tx.pure.u64(BigInt(args.maxSlippageBps ?? 100)),
             // allowed_coins: vector<vector<u8>> — empty = any coin (off-chain policy still applies).
             tx.pure(bcs.vector(bcs.vector(bcs.u8())).serialize([])),

@@ -7,7 +7,7 @@ import { PathGuard } from './path-guard'
 import { PermissionService } from './service'
 
 describe('detectDangerousCommand', () => {
-  const cases: Array<[string, string | false]> = [
+  const cases: [string, string | false][] = [
     ['rm -rf ~/Documents', 'recursive delete'],
     ['rm -rf /etc/foo', 'delete in root path'],
     ['chmod 777 secret', 'world/other-writable permissions'],

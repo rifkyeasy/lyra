@@ -21,13 +21,23 @@
     "enabled": true,
     "rules": {
       "recommended": true,
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": { "maxAllowedComplexity": 15 }
+        },
+        "useSimplifiedLogicExpression": "warn"
+      },
       "suspicious": {
         "noExplicitAny": "warn",
         "noConsoleLog": "off"
       },
       "style": {
         "noNonNullAssertion": "off",
-        "useImportType": "warn"
+        "useImportType": "warn",
+        "useCollapsedElseIf": "warn",
+        "useShorthandAssign": "warn",
+        "useConsistentArrayType": { "level": "warn", "options": { "syntax": "shorthand" } }
       },
       "correctness": {
         "noUnusedVariables": "warn",
@@ -42,8 +52,10 @@
       "build",
       ".claude",
       ".vercel",
-      "apps/web",
-      "apps/automation",
+      "apps",
+      "move",
+      "knowledge",
+      "knowledge-sui",
       "bun.lock",
       ".changeset",
       "test/local",

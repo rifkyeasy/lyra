@@ -77,7 +77,7 @@ export function sanitizeInbound(input: SanitizeInput, opts: SanitizeOpts): Sanit
   const inAllowlist = opts.allowedUserIds.includes(input.fromId)
   const pairingApproved = opts.pairingStore?.isApproved(platform, String(input.fromId)) ?? false
 
-  if (!inAllowlist && !pairingApproved) {
+  if (!(inAllowlist || pairingApproved)) {
     if (opts.pairingStore) {
       const code = opts.pairingStore.generateCode(
         platform,

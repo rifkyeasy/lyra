@@ -3,8 +3,9 @@
 The **Sui limbs** for **lyra** — the tools that do real on-chain work. Every
 value-moving call is routed through the deterministic **policy → simulate →
 approve → execute** pipeline, and (when a vault is provisioned) sources funds from
-the on-chain `Vault` via `vault_spend`, so nothing moves outside the on-chain
-`lyra::policy` limits.
+the on-chain `Vault` via one of its bounded exits (`vault_transfer`,
+`vault_borrow`/`vault_settle`, `vault_spend_capped`), so nothing moves outside the
+on-chain `lyra::policy` limits.
 
 - **Wallet / reads** — `account.info`, `sui.balance`
 - **Transfers** — `sui.send` (recipient-allowlist aware)

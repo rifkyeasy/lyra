@@ -157,10 +157,35 @@ export class OpenAIBrain implements Brain {
 
     let turnResult: BrainTurn | null = null
     let recoveredFromSafetyBlock = false
+    // Runaway guard: bound how many model round-trips and tool calls a single
+    // turn may make. Without this the loop only ends when the model stops calling
+    // tools — a prompt-injected or looping model could chain unbounded tool calls
+    // (each a potential spend). Overridable via env for power users.
+    const readInt = (k: string, d: number): number => {
+      const n = Number(
+        (globalThis as { process?: { env?: Record<string, string> } }).process?.env?.[k],
+      )
+      return Number.isFinite(n) && n > 0 ? n : d
+    }
+    const maxRoundTrips = readInt('LYRA_MAX_ROUND_TRIPS', 32)
+    const maxToolCalls = readInt('LYRA_MAX_TOOL_CALLS', 64)
+    let roundTrips = 0
+    let toolCallsMade = 0
     while (true) {
       if (signal?.aborted) {
         throw new DOMException('aborted between round-trips', 'AbortError')
       }
+      if (roundTrips >= maxRoundTrips || toolCallsMade >= maxToolCalls) {
+        const hitRounds = roundTrips >= maxRoundTrips
+        messages.push({
+          role: 'assistant',
+          content:
+            turnResult?.content?.trim() ||
+            `Halting this turn: hit the ${hitRounds ? `${maxRoundTrips} round-trip` : `${maxToolCalls} tool-call`} safety cap without finishing. Stopping to prevent a runaway loop.`,
+        })
+        break
+      }
+      roundTrips++
       const resp = await this.callCompletion(messages, signal)
       turnResult = resp
 
@@ -188,6 +213,7 @@ export class OpenAIBrain implements Brain {
         content: resp.content ?? '',
         toolCalls: resp.toolCalls,
       })
+      toolCallsMade += resp.toolCalls.length
 
       for (const call of resp.toolCalls) {
         if (signal?.aborted) {

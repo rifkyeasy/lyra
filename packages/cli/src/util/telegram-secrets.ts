@@ -67,7 +67,7 @@ export async function fetchBotInfo(
     description?: string
     result?: { id: number; username?: string; first_name?: string }
   }
-  if (!body.ok || !body.result) {
+  if (!(body.ok && body.result)) {
     throw new Error(`getMe rejected: ${body.description ?? 'unknown error'}`)
   }
   if (!body.result.username) throw new Error('bot has no username; create one in @BotFather')

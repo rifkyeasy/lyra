@@ -14,10 +14,10 @@ import { Transaction, coinWithBalance } from '@mysten/sui/transactions'
 import type { ToolDef } from 'lyra-core'
 import { stakeTovSuiPTB, unstakeTovSui } from 'navi-sdk'
 import { z } from 'zod'
+import { simulateAndExecute } from '../execute'
 import { checkMinimum } from '../minimums'
-import { evaluatePolicy, suiToMist } from '../policy'
+import { policyBlock, suiToMist } from '../policy'
 import { PROTOCOL_IDS } from '../protocol-ids'
-import { simulate } from '../simulate'
 import type { OnchainRuntimeContext } from '../types'
 import { fundSui } from '../vault-fund'
 
@@ -52,15 +52,13 @@ export function makeVoloStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
         const tooSmall = checkMinimum('stake', amountMist)
         if (tooSmall) return { ok: false, error: tooSmall }
 
-        if (ctx.policy) {
-          const verdict = evaluatePolicy(
-            { kind: 'transfer', coinType: SUI_TYPE, amountMist, protocol: 'stake' },
-            ctx.policy,
-          )
-          if (!verdict.allowed) {
-            return { ok: false, error: `policy blocked: ${verdict.violations.join('; ')}` }
-          }
-        }
+        const blocked = policyBlock(ctx.policy, {
+          kind: 'transfer',
+          coinType: SUI_TYPE,
+          amountMist,
+          protocol: 'stake',
+        })
+        if (blocked) return { ok: false, error: blocked }
 
         const tx = new Transaction()
         // Source the stake from the treasury vault (policy-enforced) when wired.
@@ -72,21 +70,8 @@ export function makeVoloStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
         const vsui = await stakeTovSuiPTB(tx as never, suiCoin as never)
         tx.transferObjects([vsui as never], ctx.agentAddress)
 
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true },
-        })
-        if (res.effects?.status?.status !== 'success') {
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        }
-        await ctx.client.waitForTransaction({ digest: res.digest })
+        const exec = await simulateAndExecute(ctx, tx)
+        if (!exec.ok) return exec
         return {
           ok: true,
           data: {
@@ -94,7 +79,7 @@ export function makeVoloStake(ctx: OnchainRuntimeContext): ToolDef<StakeArgs> {
             action: 'liquid-stake',
             amountSui: args.amount,
             received: 'vSUI',
-            digest: res.digest,
+            digest: exec.value.digest,
             status: 'success',
           },
         }
@@ -120,34 +105,32 @@ export function makeVoloUnstake(ctx: OnchainRuntimeContext): ToolDef<UnstakeArgs
           return { ok: false, error: `invalid amount "${args.amount}"` }
         }
 
+        // Same deterministic policy gate as every other write: readonly/expiry/
+        // protocol-allowlist checks apply, and the permission layer escalates it
+        // via the value-moving capability gate.
+        const blocked = policyBlock(ctx.policy, {
+          kind: 'transfer',
+          coinType: VSUI_TYPE,
+          amountMist,
+          protocol: 'stake',
+        })
+        if (blocked) return { ok: false, error: blocked }
+
         const tx = new Transaction()
         // coinWithBalance resolves the agent's vSUI coins into one of the exact size.
         const vsuiCoin = coinWithBalance({ type: VSUI_TYPE, balance: amountMist })
         const sui = await unstakeTovSui(tx as never, vsuiCoin as never)
         tx.transferObjects([sui as never], ctx.agentAddress)
 
-        const sim = await simulate(ctx.client, tx, ctx.agentAddress)
-        if (!sim.ok) return { ok: false, error: `pre-flight simulation failed: ${sim.reason}` }
-
-        const res = await ctx.client.signAndExecuteTransaction({
-          signer: ctx.keypair,
-          transaction: tx,
-          options: { showEffects: true },
-        })
-        if (res.effects?.status?.status !== 'success') {
-          return {
-            ok: false,
-            error: `execution failed: ${res.effects?.status?.error ?? 'unknown'}`,
-          }
-        }
-        await ctx.client.waitForTransaction({ digest: res.digest })
+        const exec = await simulateAndExecute(ctx, tx)
+        if (!exec.ok) return exec
         return {
           ok: true,
           data: {
             protocol: 'volo',
             action: 'unstake',
             amountVsui: args.amount,
-            digest: res.digest,
+            digest: exec.value.digest,
             status: 'success',
           },
         }

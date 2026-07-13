@@ -292,7 +292,7 @@ async function runAgentBrowser(
   opts: RunOpts = {},
 ): Promise<RunResult> {
   const result = await runAgentBrowserOnce(command, extraArgs, deps)
-  if (!result.ok || !opts.settleAfterMs) return result
+  if (!(result.ok && opts.settleAfterMs)) return result
   // Best-effort settle wait — the primary call's result is what we report;
   // a wait failure (e.g. timeout) doesn't invalidate the action that just
   // succeeded. We DO surface it via stderr though.

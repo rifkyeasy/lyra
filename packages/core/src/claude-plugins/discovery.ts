@@ -77,7 +77,7 @@ async function collectFromDir(
     return
   }
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.md')) continue
+    if (!(entry.isFile() && entry.name.endsWith('.md'))) continue
     const filePath = join(dir, entry.name)
     let raw: string
     try {

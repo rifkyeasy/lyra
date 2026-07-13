@@ -8,14 +8,17 @@ chain is the source of truth.
 
 - 🌐 **Live web console:** https://lyraai.space
 - 📦 **npm (CLI):** [`lyra-ai-agent`](https://www.npmjs.com/package/lyra-ai-agent)
-- ⛓️ **Mainnet package:** `0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617`
+- ⛓️ **Mainnet package:** `0x8b2412e9a5d931cafa533d29daf8c91edacda28d6a689cbdecacf2a092380e14`
 
 ---
 
 ## Why it's non-custodial
 
 Funds live in an on-chain `Vault`, owned by **you**. The agent can only draw from it
-through `vault_spend`, which re-runs the full policy gate in Move on every action. So:
+through **three bounded, policy-gated exits** — a recipient-checked `vault_transfer`, a
+hot-potato `vault_borrow`/`vault_settle` that must return funds to a vault in the same
+transaction (zero standing exposure), and a window-capped `vault_spend_capped` for
+staking/lending. Each re-runs the full policy gate in Move on every action. So:
 
 - A compromised agent key — or a leaked server — is **bounded by the policy** and
   **revocable** by you at any time (`owner_withdraw`).
@@ -43,7 +46,7 @@ Set the agent + guardrails (e.g. in your shell profile or a `.env`):
 ```bash
 export LYRA_AGENT_KEY=suiprivkey1...        # the agent that signs + pays gas
 export LYRA_NETWORK=mainnet
-export LYRA_PACKAGE_ID=0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617
+export LYRA_PACKAGE_ID=0x8b2412e9a5d931cafa533d29daf8c91edacda28d6a689cbdecacf2a092380e14
 export OPENAI_API_KEY=sk-...                 # any OpenAI-compatible key
 export LYRA_LLM_BASE_URL=https://api.openai.com/v1
 export LYRA_LLM_MODEL=gpt-4o-mini
@@ -98,9 +101,9 @@ You (natural language)
       ▼
 Off-chain policy engine ──► simulate (dry-run) ──► execute
       │                                              │
-      └──────────────► lyra::vault::vault_spend ◄─────┘
+      └───► lyra::vault (transfer / borrow+settle / spend_capped) ◄───┘
                        re-runs lyra::policy in Move:
-                       version? agent? budget? per-tx? coin? protocol? recipient? expiry? revoked?
+                       version? agent? budget? per-tx? window? coin? protocol? recipient? expiry? revoked?
                        └► releases Coin from the on-chain Vault + mints ActionReceipt
 ```
 
@@ -109,8 +112,10 @@ The on-chain package is five focused Move modules (in its own repo,
 
 - **`lyra::policy`** — the `AgentPolicy` gate: budget, per-tx cap, coin/protocol/
   recipient allowlists (anti prompt-injection), expiry, revoke, and a version guard.
-- **`lyra::vault`** — the treasury `Vault<T>`; `vault_spend` / `vault_transfer` re-run
-  the policy on-chain; `owner_withdraw` is your escape hatch (never version-trapped).
+- **`lyra::vault`** — the treasury `Vault<T>`; three bounded exits (`vault_transfer`,
+  `vault_borrow`/`vault_settle`, `vault_spend_capped`) re-run the policy on-chain with a
+  rolling-window blast-radius bound; `owner_withdraw` is your escape hatch (never
+  version-trapped).
 - **`lyra::receipt`** — the immutable `ActionReceipt` audit artifact; only the gate mints it.
 - **`lyra::allowlist` / `lyra::constants`** — reusable allowlist rules + the shared version.
 - **Walrus** — durable, verifiable receipts/memory.

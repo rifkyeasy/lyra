@@ -52,7 +52,7 @@ export function acquireTelegramTokenLock(
     ttl: opts.ttl ?? DEFAULT_LOCK_TTL_SECONDS,
     rootDir: opts.rootDir,
   })
-  if (!result.acquired || !result.handle) {
+  if (!(result.acquired && result.handle)) {
     const ex = result.existing ?? { pid: -1, startedAt: 0, updatedAt: 0 }
     throw new BotTokenLockedError(ex.pid, ex.startedAt)
   }
