@@ -109,7 +109,10 @@
       "dependencies": {
         "@mysten/sui": "^2.20.3",
         "@wormhole-foundation/sdk": "^6.1.0",
+        "@wormhole-foundation/sdk-evm": "^6.1.0",
+        "@wormhole-foundation/sdk-evm-cctp": "^6.1.0",
         "@wormhole-foundation/sdk-sui": "^6.1.0",
+        "@wormhole-foundation/sdk-sui-cctp": "^6.1.0",
         "lyra-core": "workspace:*",
       },
       "devDependencies": {
