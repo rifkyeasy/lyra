@@ -13,29 +13,14 @@
   "bugs": {
     "url": "https://github.com/lyraai-protocol/lyra/issues"
   },
-  "keywords": [
-    "lyra",
-    "ai",
-    "agent",
-    "cli",
-    "tui",
-    "sui",
-    "walrus",
-    "deepbook",
-    "defi"
-  ],
+  "keywords": ["lyra", "ai", "agent", "cli", "tui", "sui", "walrus", "deepbook", "defi"],
   "publishConfig": {
     "access": "public"
   },
   "engines": {
     "bun": ">=1.1"
   },
-  "files": [
-    "src",
-    "!src/**/*.test.ts",
-    "bin",
-    "README.md"
-  ],
+  "files": ["src", "!src/**/*.test.ts", "bin", "README.md"],
   "bin": {
     "lyra": "bin/lyra"
   },
