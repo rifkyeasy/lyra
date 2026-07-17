@@ -21,7 +21,7 @@
     },
     "packages/cli": {
       "name": "lyra-ai-agent",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "bin": {
         "lyra": "bin/lyra",
       },
@@ -45,7 +45,7 @@
     },
     "packages/core": {
       "name": "lyra-core",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "dependencies": {
         "@mysten/sui": "^1.40.0",
         "@noble/curves": "^2.2.0",
@@ -60,7 +60,7 @@
     },
     "packages/gateway": {
       "name": "lyra-gateway",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "bin": {
         "lyra-gateway": "workspace:*",
         "lyra-gateway-local": "bin/lyra-gateway-local",
@@ -78,16 +78,15 @@
     },
     "packages/plugin-onchain": {
       "name": "lyra-plugin-onchain",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "dependencies": {
         "lyra-core": "workspace:*",
         "lyra-plugin-onchain-one": "workspace:*",
-        "lyra-plugin-onchain-two": "workspace:*",
       },
     },
     "packages/plugin-onchain-one": {
       "name": "lyra-plugin-onchain-one",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@7kprotocol/sdk-ts": "^4.0.0",
         "@cetusprotocol/aggregator-sdk": "^1.6.1",
@@ -98,14 +97,14 @@
         "@scallop-io/sui-scallop-sdk": "^2.4.5",
         "@suilend/sdk": "1.1.99",
         "@suilend/sui-fe": "0.3.49",
-        "lyra-core": "^0.3.0",
+        "lyra-core": "^0.4.0",
         "navi-sdk": "^1.7.3",
         "zod": "^3.23.8",
       },
     },
     "packages/plugin-onchain-two": {
       "name": "lyra-plugin-onchain-two",
-      "version": "0.0.0",
+      "version": "0.0.2",
       "dependencies": {
         "@mysten/sui": "^2.20.3",
         "@wormhole-foundation/sdk": "^6.1.0",
@@ -122,7 +121,7 @@
     },
     "packages/plugin-system": {
       "name": "lyra-plugin-system",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "dependencies": {
         "agent-browser": "^0.26.0",
         "lyra-core": "workspace:*",
@@ -131,7 +130,7 @@
     },
     "packages/plugin-telegram": {
       "name": "lyra-plugin-telegram",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "dependencies": {
         "@mysten/sui": "^1.45.0",
         "grammy": "^1.42.0",

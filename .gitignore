@@ -74,8 +74,12 @@ apps/automation/
 apps/api/
 apps/app/
 apps/landing/
+apps/waitlist-testnet/
 apps/automate-article/
 
 # The Move package lives in its own repo (lyraai-protocol/contracts). It is
 # checked out here as a nested satellite repo, not tracked by the core repo.
 move/
+
+# Private testnet launch planning — internal, not committed
+testnet-plan/
