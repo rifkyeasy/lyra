@@ -121,6 +121,22 @@ The on-chain package is five focused Move modules (in its own repo,
 - **Walrus** — durable, verifiable receipts/memory.
 - **Aggregated execution** — swaps route across Cetus / FlowX / Bluefin / DeepBook (7k).
 
+### Funding the vault from another chain
+
+The vault is on Sui; the money usually isn't. `packages/plugin-onchain-two` bridges USDC
+in from **Ethereum, Base, Arbitrum, Optimism, Polygon and Avalanche** over Circle CCTP
+(Sui is domain 8), and lands it in your `Vault<USDC>`:
+
+```
+burn on source chain ──► Circle attests ──► redeem on Sui ──► [swap to USDC] ──► Vault<USDC>
+     initiated          source_burned       attested          sui_redeemed        vault_deposited
+```
+
+Every step is a checked transition, and the state lives in the store rather than in a
+process — so the driver resumes mid-flight transfers after a restart instead of stranding
+them. We run the relayer ourselves; CCTP takes no protocol fee, so you pay source-chain gas
+and nothing else. Tools: `bridge.routes`, `bridge.deposit`, `bridge.status`.
+
 An upgrade can pause the agent's spend path (until the owner `migrate`s a policy/vault),
 but owner controls — revoke, re-scope, `owner_withdraw` — are never version-gated, so an
 upgrade can never trap your funds.
@@ -141,16 +157,18 @@ The **Move package lives in its own repo**,
 
 Org layout:
 ```
-lyraai-protocol/lyra        this repo — agent runtime, tools, CLI, gateway
-  packages/core             agent runtime / brain (tool loop)
-  packages/plugin-onchain   Sui tools: send, swap, lend, stake, walrus, vault, policy
-  packages/plugin-telegram  Telegram interface (/link, listener)
-  packages/gateway          always-on daemon
-  packages/cli              the `lyra` CLI
-lyraai-protocol/contracts   the Move package (policy · vault · receipt · allowlist · constants)
-lyraai-protocol/app         app.lyraai.space — Next.js console (dapp-kit + SIWS)
-lyraai-protocol/landing     lyraai.space — marketing + research
-lyraai-protocol/api         api.lyraai.space — Bun + Hono + SQLite (article store)
+lyraai-protocol/lyra          this repo — agent runtime, tools, CLI, gateway
+  packages/core               agent runtime / brain (tool loop)
+  packages/plugin-onchain     Sui tools: send, swap, lend, stake, walrus, vault, policy
+  packages/plugin-onchain-two cross-chain deposits (CCTP) + the deposit driver
+  packages/plugin-telegram    Telegram interface (/link, listener)
+  packages/gateway            always-on daemon
+  packages/cli                the `lyra` CLI
+lyraai-protocol/contracts     the Move package (policy · vault · receipt · allowlist · constants)
+lyraai-protocol/app           app.lyraai.space — Next.js console (dapp-kit + SIWS)
+lyraai-protocol/landing       lyraai.space — marketing + research
+lyraai-protocol/waitlist      waitlist.lyraai.space — testnet waitlist
+lyraai-protocol/api           api.lyraai.space — Bun + Hono + SQLite (articles, chats, deposits, waitlist)
 ```
 
 ## Deploy
