@@ -251,7 +251,11 @@ export function makeSwap(ctx: OnchainRuntimeContext): ToolDef<Args> {
         if (blocked) return { ok: false, error: blocked }
 
         const me = ctx.agentAddress
-        const ag = new MetaAg({ slippageBps: requestedSlippageBps })
+        const ag = new MetaAg({
+            slippageBps: requestedSlippageBps,
+            // Cetus routes need a Pyth Hermes URL or they fail on missing pythUrls.
+            hermesApi: process.env.LYRA_HERMES_API ?? 'https://hermes.pyth.network',
+          })
         // Quote without the SDK's internal pre-simulation (it throws on routes it
         // can't simulate); we simulate the chosen route ourselves below.
         const quotes = (
