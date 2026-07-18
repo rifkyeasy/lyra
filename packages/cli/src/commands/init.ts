@@ -17,7 +17,7 @@ import { deviceLink, resolveWebBase } from './login'
  *   1. LLM key — reuse OPENAI_API_KEY if set, else prompt + persist to
  *      `~/.lyra/.env` (mode 0600).
  *   2. Agent — "Create new" (generate a fresh Ed25519 key, written to
- *      `~/.lyra/agent.key`) OR "Login with web" (device-link to lyraai.space →
+ *      `~/.lyra/agent.key`) OR "Login with web" (device-link to app.lyraai.space →
  *      the SAME agent as the web wallet).
  *   3. Config — network + package id defaults written to `~/.lyra/config.ts`.
  *
@@ -126,7 +126,7 @@ async function resolveAgent(forceNew: boolean): Promise<AgentResolution | null> 
         },
         {
           value: 'login',
-          label: 'Login with web — use the same agent as lyraai.space',
+          label: 'Login with web — use the same agent as app.lyraai.space',
         },
       ],
       initialValue: 'create',

@@ -46,8 +46,8 @@ const baseDeps = (fetchImpl: typeof fetch): LoginDeps => ({
 })
 
 describe('resolveWebBase', () => {
-  test('defaults to lyraai.space, env override wins', () => {
-    expect(resolveWebBase({})).toBe('https://lyraai.space')
+  test('defaults to app.lyraai.space, env override wins', () => {
+    expect(resolveWebBase({})).toBe('https://app.lyraai.space')
     expect(resolveWebBase({ LYRA_WEB_URL: 'http://localhost:3000' })).toBe('http://localhost:3000')
   })
 })
