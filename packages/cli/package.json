@@ -1,6 +1,6 @@
 {
   "name": "lyra-ai-agent",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "description": "lyra CLI: a Sui-native, policy-bound AI finance agent. Real on-chain work gated by deterministic policy, simulation, and approval",
   "license": "MIT",
