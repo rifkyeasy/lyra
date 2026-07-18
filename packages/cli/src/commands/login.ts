@@ -1,6 +1,6 @@
 /**
  * `lyra login` — device-link the CLI to the same agent your web wallet
- * controls on lyraai.space.
+ * controls on app.lyraai.space.
  *
  * Flow (matches the web server contract exactly):
  *   1. POST {base}/api/cli/login/start  → { code, pollToken, verifyUrl, expiresInSec }
@@ -21,8 +21,10 @@ import { DEFAULT_NETWORK } from '../config/defaults'
 import { finalizeSetup } from '../config/setup'
 import { writeAgentKey } from '../util/sui-runtime'
 
-/** Default web origin; override with LYRA_WEB_URL for local/staging testing. */
-const DEFAULT_WEB_URL = 'https://lyraai.space'
+/** Default web origin; override with LYRA_WEB_URL for local/staging testing.
+ *  MUST be the app subdomain — the `/api/*` routes live on app.lyraai.space; the
+ *  bare lyraai.space is the landing site and 404s every API call. */
+const DEFAULT_WEB_URL = 'https://app.lyraai.space'
 const POLL_INTERVAL_MS = 2000
 
 export interface LoginStart {

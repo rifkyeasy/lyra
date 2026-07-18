@@ -132,7 +132,7 @@ function printHelp(): void {
       '',
       'Commands:',
       '  lyra init                set up your agent (interactive; --new / --yes skip prompts)',
-      '  lyra login               link the same agent as lyraai.space (device-link)',
+      '  lyra login               link the same agent as app.lyraai.space (device-link)',
       '  lyra [--yolo]            interactive chat with your agent (default; --yolo skips approvals)',
       '  lyra status              show agent address + network + SUI balance + policy',
       '  lyra whoami [--owner 0x…] resolve the agent wallet an owner controls (same on web/CLI/TG)',
