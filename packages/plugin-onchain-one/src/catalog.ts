@@ -17,6 +17,7 @@
 import type { ToolDef } from 'lyra-core'
 import { makeAccountInfo, makeSuiBalance } from './tools/balance'
 import { makeCetusQuote } from './tools/cetus'
+import { makeCetusLp } from './tools/cetus-lp'
 import { makeDeepbookMarkets } from './tools/deepbook'
 import { makeDefiYields } from './tools/defillama'
 import { makeVoloStake, makeVoloUnstake } from './tools/liquid-stake'
@@ -155,6 +156,15 @@ export const TOOLS: CatalogEntry[] = [
     make: makeSwap,
     web: false,
     blurb: 'swap — best-route swap across the major Sui DEXes (7k aggregator).',
+  },
+
+  // Liquidity provision (value-moving; web-executable via the deferred Execute card)
+  {
+    name: 'cetus.add_liquidity',
+    make: makeCetusLp,
+    web: true,
+    blurb:
+      'cetus.add_liquidity — provide full-range liquidity to a Cetus pool, zap-funded from vault SUI (SUI-paired pools).',
   },
 
   // Lending

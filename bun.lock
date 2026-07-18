@@ -78,7 +78,7 @@
     },
     "packages/plugin-onchain": {
       "name": "lyra-plugin-onchain",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "dependencies": {
         "lyra-core": "workspace:*",
         "lyra-plugin-onchain-one": "workspace:*",
