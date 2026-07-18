@@ -8,7 +8,7 @@ chain is the source of truth.
 
 - 🌐 **Live web console:** https://lyraai.space
 - 📦 **npm (CLI):** [`lyra-ai-agent`](https://www.npmjs.com/package/lyra-ai-agent)
-- ⛓️ **Mainnet package:** `0x8b2412e9a5d931cafa533d29daf8c91edacda28d6a689cbdecacf2a092380e14`
+- ⛓️ **Mainnet package:** `0xcd6943c0c4397f9d56c908f6e6952056bf469aa062afc7be9af358aba8fe15c5`
 
 ---
 
@@ -46,7 +46,7 @@ Set the agent + guardrails (e.g. in your shell profile or a `.env`):
 ```bash
 export LYRA_AGENT_KEY=suiprivkey1...        # the agent that signs + pays gas
 export LYRA_NETWORK=mainnet
-export LYRA_PACKAGE_ID=0x8b2412e9a5d931cafa533d29daf8c91edacda28d6a689cbdecacf2a092380e14
+export LYRA_PACKAGE_ID=0xcd6943c0c4397f9d56c908f6e6952056bf469aa062afc7be9af358aba8fe15c5
 export OPENAI_API_KEY=sk-...                 # any OpenAI-compatible key
 export LYRA_LLM_BASE_URL=https://api.openai.com/v1
 export LYRA_LLM_MODEL=gpt-4o-mini
@@ -112,6 +112,9 @@ The on-chain package is five focused Move modules (in its own repo,
 
 - **`lyra::policy`** — the `AgentPolicy` gate: budget, per-tx cap, coin/protocol/
   recipient allowlists (anti prompt-injection), expiry, revoke, and a version guard.
+  Every cap is **owner-editable on-chain** (`set_max_per_tx` / `set_budget` /
+  `set_window_budget`); provision scales them to your seed, so a whale isn't stuck at a
+  toy limit.
 - **`lyra::vault`** — the treasury `Vault<T>`; three bounded exits (`vault_transfer`,
   `vault_borrow`/`vault_settle`, `vault_spend_capped`) re-run the policy on-chain with a
   rolling-window blast-radius bound; `owner_withdraw` is your escape hatch (never
@@ -120,6 +123,10 @@ The on-chain package is five focused Move modules (in its own repo,
 - **`lyra::allowlist` / `lyra::constants`** — reusable allowlist rules + the shared version.
 - **Walrus** — durable, verifiable receipts/memory.
 - **Aggregated execution** — swaps route across Cetus / FlowX / Bluefin / DeepBook (7k).
+- **Liquidity provision** — full-range Cetus CLMM positions, zap-funded from vault SUI
+  (keep half, swap half to the pair coin, add liquidity) — all under the same policy gate.
+- **Confirm before sign** — every value-moving action (transfer, swap, lend, stake, LP)
+  shows a live preview (amounts in/out, route, policy checks) before the agent signs.
 
 ### Funding the vault from another chain
 
