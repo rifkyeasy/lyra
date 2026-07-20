@@ -1,10 +1,29 @@
 {
   "network": "testnet",
   "package": "lyra",
-  "module": "policy",
-  "packageId": "0x660c443a027823dd2befba62588449c801d99566f16cdd5376b6b986dafc64bf",
-  "publishDigest": "Rpy14DijyEPmatMc5dEyTNSscbWsqAt3JUP78bAbsJK",
-  "publishedBy": "0xa2e1d6b5e1402e9c31fd1b5abec58e765fb171c8f01c2be1a1380cceea498543",
-  "publishedAt": "2026-06-16",
-  "suiCliVersion": "1.60.0"
+  "modules": ["allowlist", "constants", "policy", "receipt", "vault"],
+  "packageId": "0xf7658441ed67ed6c0670745a180048456783b573d906b75de929989320901d31",
+  "originalPackageId": "0xf7658441ed67ed6c0670745a180048456783b573d906b75de929989320901d31",
+  "upgradeCap": "0xa43fdd508e3c36e6b140566787d51de58805274752acfa95df6daaa7c4440802",
+  "upgradePolicy": "compatible",
+  "publishDigest": "9ZxsK3e7m7zZzpnEYtsdqSLuTTdBWvtVrZnCGnB8K3qR",
+  "publishedAt": "2026-07-13",
+  "suiCliVersion": "1.75.1",
+  "version": 1,
+  "notes": [
+    "Model-B validation deploy — same source lineage as mainnet 0x8b2412e9, published the same day.",
+    "publishedBy is omitted on purpose: the publish tx is pruned from public testnet RPCs, so the sender could not be verified on-chain. publishedAt comes from the deploy commit.",
+    "Still at version 1 — the cap setters (set_max_per_tx / set_budget / set_window_budget) shipped in mainnet v2 and are NOT here yet.",
+    "The official testnet RPC has been unreliable — use https://sui-testnet-rpc.publicnode.com or https://rpc-testnet.suiscan.xyz."
+  ],
+  "superseded": [
+    {
+      "packageId": "0x660c443a027823dd2befba62588449c801d99566f16cdd5376b6b986dafc64bf",
+      "publishDigest": "Rpy14DijyEPmatMc5dEyTNSscbWsqAt3JUP78bAbsJK",
+      "publishedBy": "0xa2e1d6b5e1402e9c31fd1b5abec58e765fb171c8f01c2be1a1380cceea498543",
+      "publishedAt": "2026-06-16",
+      "suiCliVersion": "1.60.0",
+      "reason": "Early policy-only package, before the multi-module (model-B) rework."
+    }
+  ]
 }

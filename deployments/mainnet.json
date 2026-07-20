@@ -2,11 +2,36 @@
   "network": "mainnet",
   "package": "lyra",
   "modules": ["allowlist", "constants", "policy", "receipt", "vault"],
-  "packageId": "0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617",
-  "upgradeCap": "0x039cc1dc3ba8a3e451d21469359ac709797ae9b04c1ced747f0de464202c39ba",
-  "publishDigest": "4PagB78iMmREfid2ykRE4NZB6x4jMumEy1Qhs2TTbFWg",
+  "packageId": "0xcd6943c0c4397f9d56c908f6e6952056bf469aa062afc7be9af358aba8fe15c5",
+  "originalPackageId": "0x8b2412e9a5d931cafa533d29daf8c91edacda28d6a689cbdecacf2a092380e14",
+  "upgradeCap": "0xd3b09097ba13f6416efdad9921b175d5643569866bd120affea2b2acaa3e7ec0",
+  "upgradePolicy": "compatible",
+  "publishDigest": "9NwFHsn1w2K6jBUKC1UjXf5uupTd6w2Rkx38cmR3nZCJ",
   "publishedBy": "0x46e37419c58981bb69100fa559baa52fd7e219486d75e9dc3f0896fab01d06f5",
-  "publishedAt": "2026-07-11",
+  "publishedAt": "2026-07-13",
   "suiCliVersion": "1.75.1",
-  "version": 1
+  "version": 2,
+  "upgrades": [
+    {
+      "version": 2,
+      "packageId": "0xcd6943c0c4397f9d56c908f6e6952056bf469aa062afc7be9af358aba8fe15c5",
+      "digest": "4zmdJnScbysoBETWUp9st8MHyW7wy6NxzL6GvCqAsHeB",
+      "upgradedAt": "2026-07-18",
+      "upgradedBy": "0x46e37419c58981bb69100fa559baa52fd7e219486d75e9dc3f0896fab01d06f5",
+      "summary": "Owner-gated cap setters: policy::set_max_per_tx, policy::set_budget, policy::set_window_budget (additive)."
+    }
+  ],
+  "usage": {
+    "packageId": "LATEST published id — use for moveCall targets so new functions are reachable.",
+    "originalPackageId": "DEFINING id — struct/event types (Vault<T>, AgentPolicy, PolicyOwnerCap, VaultOpened) keep this across upgrades, so object/event type filters MUST use it. Using the latest id in a type filter matches nothing."
+  },
+  "superseded": [
+    {
+      "packageId": "0x1925bced9aeb16ca8159be0a10d39a0778fe618404443a4b6149116ad9997617",
+      "upgradeCap": "0x039cc1dc3ba8a3e451d21469359ac709797ae9b04c1ced747f0de464202c39ba",
+      "publishDigest": "4PagB78iMmREfid2ykRE4NZB6x4jMumEy1Qhs2TTbFWg",
+      "publishedAt": "2026-07-11",
+      "reason": "Replaced by a fresh publish (0x8b2412e9, 2026-07-13) — separate lineage, not an upgrade of this one."
+    }
+  ]
 }
