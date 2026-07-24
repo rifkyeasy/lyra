@@ -1,6 +1,6 @@
 {
   "name": "lyra-gateway",
-  "version": "0.4.1",
+  "version": "0.5.1",
   "type": "module",
   "description": "Lyra gateway daemon: the always-on local brain runtime + listeners (Telegram, approvals) for the lyra agent",
   "license": "MIT",
@@ -13,14 +13,26 @@
   "bugs": {
     "url": "https://github.com/lyraai-protocol/lyra/issues"
   },
-  "keywords": ["lyra", "ai", "agent", "gateway", "daemon", "sui"],
+  "keywords": [
+    "lyra",
+    "ai",
+    "agent",
+    "gateway",
+    "daemon",
+    "sui"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "engines": {
     "bun": ">=1.1"
   },
-  "files": ["src", "!src/**/*.test.ts", "bin", "README.md"],
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "bin",
+    "README.md"
+  ],
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "bin": {
@@ -35,10 +47,10 @@
     "@mysten/sui": "^1.45.2",
     "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
-    "lyra-core": "^0.4.1",
-    "lyra-plugin-onchain": "^0.4.1",
-    "lyra-plugin-system": "^0.4.1",
-    "lyra-plugin-telegram": "^0.4.1",
+    "lyra-core": "^0.5.1",
+    "lyra-plugin-onchain": "^0.5.1",
+    "lyra-plugin-system": "^0.5.1",
+    "lyra-plugin-telegram": "^0.5.1",
     "zod": "^3.24.1"
   }
 }
