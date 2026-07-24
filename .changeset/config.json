@@ -8,6 +8,7 @@
       "lyra-core",
       "lyra-gateway",
       "lyra-plugin-onchain",
+      "lyra-plugin-onchain-one",
       "lyra-plugin-system",
       "lyra-plugin-telegram"
     ]
