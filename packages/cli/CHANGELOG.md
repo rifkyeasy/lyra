@@ -1,5 +1,21 @@
 # lyra-ai-agent
 
+## 0.4.3
+
+### Patch Changes
+
+- Point the default on-chain package id at the upgraded mainnet package
+  (`0xcd6943c0…fe15c5`), so the v2 functions — owner-editable spend caps
+  (`set_max_per_tx` / `set_budget` / `set_window_budget`) — are reachable without
+  setting `LYRA_PACKAGE_ID`.
+
+## 0.4.2
+
+### Patch Changes
+
+- Point web login at `app.lyraai.space` (the console) instead of the bare domain,
+  so `lyra login` opens the correct origin.
+
 ## 0.4.1
 
 ### Patch Changes

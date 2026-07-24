@@ -1,5 +1,13 @@
 # lyra-plugin-onchain
 
+## 0.5.0
+
+### Minor Changes
+
+- Add `cetus.add_liquidity`: open a full-range Cetus CLMM position, zap-funded
+  from vault SUI (keep half, swap half to the pair coin, then add liquidity),
+  executed under the same on-chain policy gate as the other value-moving tools.
+
 ## 0.4.0
 
 ### Minor Changes
