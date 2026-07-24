@@ -9,11 +9,7 @@
     ".": "./src/index.ts",
     "./protocol-ids": "./src/protocol-ids.ts"
   },
-  "files": [
-    "src",
-    "!src/**/*.test.ts",
-    "README.md"
-  ],
+  "files": ["src", "!src/**/*.test.ts", "README.md"],
   "publishConfig": {
     "access": "public"
   },
